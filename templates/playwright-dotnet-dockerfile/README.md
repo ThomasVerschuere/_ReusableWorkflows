@@ -8,7 +8,7 @@ This template Dockerfile packages Playwright .NET test projects for deployment t
 - [ ] Copy `Dockerfile` to repository root (no customization needed!)
 - [ ] Copy `.dockerignore` to repository root (optional)
 - [ ] Create `.github/workflows/playwright-docker.yml`
-- [ ] Update `PROJECT_PATH` and `IMAGE_NAME` at the top of the workflow file
+- [ ] Update `project-path` and `image-name` (between the separator lines in the workflow)
 - [ ] Request ACR access from Thomas or configure your own ACR secrets
 - [ ] Push and verify workflow runs successfully
 
@@ -44,11 +44,6 @@ Create `.github/workflows/playwright-docker.yml`:
 ```yaml
 name: Build and Push Playwright Tests
 
-# Customize these values for your project
-env:
-  PROJECT_PATH: 'YourProject.LiveServiceTesting'  # Your LiveServiceTesting project folder
-  IMAGE_NAME: 'your-tests'                        # Your ACR image name (lowercase only)
-
 on:
   push:
     branches: [main]
@@ -59,8 +54,13 @@ jobs:
   build-and-push:
     uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
     with:
-      project-path: ${{ env.PROJECT_PATH }}
-      image-name: ${{ env.IMAGE_NAME }}
+      # ============================================
+      # TODO: Customize these values for your project
+      # ============================================
+      project-path: 'YourProject.LiveServiceTesting'  # Your LiveServiceTesting project folder
+      image-name: 'your-tests'                        # Your ACR image name (lowercase only)
+      # ============================================
+      
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
     secrets:
@@ -70,7 +70,7 @@ jobs:
 ```
 
 **What you need to customize:**
-- ✏️ **Lines 4-5**: Update `PROJECT_PATH` and `IMAGE_NAME` at the top of the file
+- ✏️ **Lines 15-16** (between the separator lines): Update `project-path` and `image-name`
 - ✏️ **Repository secrets**: Request ACR access from Thomas (see step 3 below)
 
 **What you can leave as-is:**
