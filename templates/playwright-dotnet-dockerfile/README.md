@@ -24,7 +24,6 @@ COPY MyApp.LiveServiceTesting/config.json /app/config.json
 
 Create `.github/workflows/playwright-docker.yml`:
 
-**Simple example (single tag per push):**
 ```yaml
 name: Build and Push Playwright Tests
 
@@ -38,58 +37,27 @@ jobs:
   build-and-push:
     uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
     with:
-      project-path: 'MyApp.LiveServiceTesting'
-      image-name: 'myapp-tests'
-      image-tag: 'latest'  # Default - always pushes as 'latest'
+      project-path: 'YourProject.LiveServiceTesting'  # Your project folder name
+      image-name: 'your-tests'                        # Desired ACR image name
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
-    secrets:
-      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
-      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
-      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+    secrets: inherit
 ```
 
-**Branch-based tags (recommended to limit ACR storage):**
-```yaml
-name: Build and Push Playwright Tests
+**Image tagging:**  
+The workflow pushes images tagged as `latest` by default to minimize ACR storage usage. Each push overwrites the previous image.
 
-on:
-  push:
-    branches: [main, develop, qa]
-  workflow_dispatch:
-
-jobs:
-  build-and-push:
-    uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
-    with:
-      project-path: 'MyApp.LiveServiceTesting'
-      image-name: 'myapp-tests'
-      # Map branches to environment tags
-      image-tag: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/qa' && 'qa' || 'test' }}
-      dockerfile-path: 'Dockerfile'
-      dotnet-version: '8.x'
-    secrets:
-      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
-      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
-      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
-```
-
-**With commit SHA tagging (for debugging, increases storage):**
-```yaml
-    with:
-      project-path: 'MyApp.LiveServiceTesting'
-      image-name: 'myapp-tests'
-      image-tag: 'latest'
-      include-sha-tag: true  # Also tag with commit SHA
-```
+Need different tagging strategies (test/qa/prod)? Contact the maintainers to discuss `image-tag` configuration options.
 
 ### 4. Configure repository secrets
 
-Add these secrets to your repository (Settings → Secrets and variables → Actions):
+Add these secrets to your repository (Settings → Secrets and variables → Actions → Repository secrets):
 
 - `ACR_REGISTRY` - Azure Container Registry URL (e.g., `myregistry.azurecr.io`)
 - `ACR_USERNAME` - ACR username
 - `ACR_PASSWORD` - ACR password or token
+
+**Note:** For SkylineCommunications repositories, `secrets: inherit` automatically passes all repository secrets to the reusable workflow.
 
 ## Project structure requirements
 

@@ -25,12 +25,12 @@ on:
         required: false
         type: string
         default: 'latest'
-        description: 'Docker image tag (e.g. latest, test, qa, prod). Use branch/environment-based tags to limit ACR storage.'
+        description: '(Advanced) Docker image tag. Default is latest to minimize ACR storage.'
       include-sha-tag:
         required: false
         type: boolean
         default: false
-        description: 'Also tag image with commit SHA for traceability (increases storage usage)'
+        description: '(Advanced) Also tag image with commit SHA for traceability. Increases storage usage.'
     secrets:
       ACR_REGISTRY:
         required: true
