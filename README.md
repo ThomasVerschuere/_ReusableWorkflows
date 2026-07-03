@@ -15,6 +15,7 @@ across the fleet and can be evolved in a single place.
 | `Connector Master Legacy Workflow.yml`                    | Legacy connector pipeline.                                                    |
 | `Automation Master Workflow.yml`                          | CI/CD for Automation scripts (SDK and Legacy).                                |
 | `Automation Master SDK Workflow.yml` / `Legacy`           | SDK / Legacy automation pipelines.                                            |
+| `Playwright Docker ACR Workflow.yml`                      | Build and push Playwright .NET test projects to Azure Container Registry.     |
 | `NuGet Solution Master Workflow.yml`                      | *(deprecated)* Thin redirect to `Master Workflow.yml` for public NuGet.       |
 | `Internal NuGet Solution Master Workflow.yml`             | *(deprecated)* Thin redirect to `Master Workflow.yml` for internal NuGet.     |
 | `DataMiner App Packages Master Workflow.yml`              | *(deprecated)* Thin redirect to `Master Workflow.yml` for app packages.       |
