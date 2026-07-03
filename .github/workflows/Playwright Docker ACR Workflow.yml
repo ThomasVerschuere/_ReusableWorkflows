@@ -21,6 +21,16 @@ on:
         type: string
         default: '8.x'
         description: '.NET SDK version to use'
+      image-tag:
+        required: false
+        type: string
+        default: 'latest'
+        description: 'Docker image tag (e.g. latest, test, qa, prod). Use branch/environment-based tags to limit ACR storage.'
+      include-sha-tag:
+        required: false
+        type: boolean
+        default: false
+        description: 'Also tag image with commit SHA for traceability (increases storage usage)'
     secrets:
       ACR_REGISTRY:
         required: true
@@ -75,7 +85,7 @@ jobs:
           file: ${{ inputs.dockerfile-path }}
           push: true
           tags: |
-            ${{ secrets.ACR_REGISTRY }}/${{ inputs.image-name }}:latest
-            ${{ secrets.ACR_REGISTRY }}/${{ inputs.image-name }}:${{ github.sha }}
+            ${{ secrets.ACR_REGISTRY }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
+            ${{ inputs.include-sha-tag && format('{0}/{1}:{2}', secrets.ACR_REGISTRY, inputs.image-name, github.sha) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

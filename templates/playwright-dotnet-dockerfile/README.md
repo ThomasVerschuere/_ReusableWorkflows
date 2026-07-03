@@ -24,6 +24,7 @@ COPY MyApp.LiveServiceTesting/config.json /app/config.json
 
 Create `.github/workflows/playwright-docker.yml`:
 
+**Simple example (single tag per push):**
 ```yaml
 name: Build and Push Playwright Tests
 
@@ -37,14 +38,49 @@ jobs:
   build-and-push:
     uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
     with:
-      project-path: 'MyApp.LiveServiceTesting'  # Your project folder name
-      image-name: 'myapp-tests'                 # Desired ACR image name
+      project-path: 'MyApp.LiveServiceTesting'
+      image-name: 'myapp-tests'
+      image-tag: 'latest'  # Default - always pushes as 'latest'
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
     secrets:
       ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
       ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
       ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+```
+
+**Branch-based tags (recommended to limit ACR storage):**
+```yaml
+name: Build and Push Playwright Tests
+
+on:
+  push:
+    branches: [main, develop, qa]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
+    with:
+      project-path: 'MyApp.LiveServiceTesting'
+      image-name: 'myapp-tests'
+      # Map branches to environment tags
+      image-tag: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/qa' && 'qa' || 'test' }}
+      dockerfile-path: 'Dockerfile'
+      dotnet-version: '8.x'
+    secrets:
+      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+```
+
+**With commit SHA tagging (for debugging, increases storage):**
+```yaml
+    with:
+      project-path: 'MyApp.LiveServiceTesting'
+      image-name: 'myapp-tests'
+      image-tag: 'latest'
+      include-sha-tag: true  # Also tag with commit SHA
 ```
 
 ### 4. Configure repository secrets
