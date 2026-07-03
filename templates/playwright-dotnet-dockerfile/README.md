@@ -53,8 +53,13 @@ jobs:
   build-and-push:
     uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
     with:
-      project-path: 'YourProject.LiveServiceTesting'  # Your project folder name
-      image-name: 'your-tests'                        # Desired ACR image name
+      # TODO: Update with your project folder name (e.g., MyApp.LiveServiceTesting)
+      project-path: 'YourProject.LiveServiceTesting'
+      
+      # TODO: Update with your desired image name (lowercase only, e.g., myapp-tests)
+      image-name: 'your-tests'
+      
+      # Usually leave these as-is unless you have specific requirements
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
     secrets:
@@ -64,9 +69,28 @@ jobs:
       LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.YOUR_ACR_PASSWORD }}
 ```
 
-**Once you have been provisioned the LiveServiceTests ACR secrets** (after contacting Thomas), you can simplify to:
+**What you need to customize:**
+- ✏️ `project-path` - Your LiveServiceTesting project folder name
+- ✏️ `image-name` - Your desired ACR image name (must be lowercase)
+- ✏️ Secret values in your repository settings
+
+**What you can leave as-is:**
+- ✅ `dockerfile-path: 'Dockerfile'` (unless you renamed it)
+- ✅ `dotnet-version: '8.x'` (unless using different version)
+- ✅ The `uses:` line pointing to the reusable workflow
+- ✅ Trigger conditions (on push/PR/workflow_dispatch)
+
+**Once you have been provisioned the LiveServiceTests ACR secrets** (after contacting Thomas), simplify the secrets section:
 ```yaml
-    secrets: inherit
+jobs:
+  build-and-push:
+    uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
+    with:
+      project-path: 'YourProject.LiveServiceTesting'  # TODO: Update this
+      image-name: 'your-tests'                        # TODO: Update this
+      dockerfile-path: 'Dockerfile'
+      dotnet-version: '8.x'
+    secrets: inherit  # ✅ Automatically passes LIVESERVICETESTS_ACR_* secrets
 ```
 
 **Image tagging:**  
