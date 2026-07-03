@@ -55,7 +55,9 @@ function Invoke-ParserCase {
         [Parameter(Mandatory)][string]$ExpectedChangeType,
         [Parameter(Mandatory)][string]$ExpectedPairCount,
         [Parameter(Mandatory)][string]$ExpectedRnsJson,
-        [Parameter(Mandatory)][string]$ExpectedPairsJson
+        [Parameter(Mandatory)][string]$ExpectedPairsJson,
+        [string[]]$ExpectedCommentContains = @(),
+        [string[]]$ExpectedCommentMissing = @()
     )
 
     $caseDirectoryName = $Name -replace '[^A-Za-z0-9]', '_'
@@ -103,6 +105,20 @@ function Invoke-ParserCase {
     if (-not (Test-Path -Path $commentFile -PathType Leaf)) {
         throw "${Name}: expected comment file '${commentFile}' to exist."
     }
+
+    if ($ExpectedCommentContains.Count -gt 0 -or $ExpectedCommentMissing.Count -gt 0) {
+        $commentText = Get-Content -Path $commentFile -Raw
+        foreach ($expected in $ExpectedCommentContains) {
+            if (-not $commentText.Contains($expected)) {
+                throw "${Name}: expected comment to contain '${expected}'."
+            }
+        }
+        foreach ($forbidden in $ExpectedCommentMissing) {
+            if ($commentText.Contains($forbidden)) {
+                throw "${Name}: expected comment to NOT contain '${forbidden}'."
+            }
+        }
+    }
 }
 
 try {
@@ -122,6 +138,33 @@ try {
     Invoke-ParserCase -Name '14 no change type label' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '-'
     Invoke-ParserCase -Name '15 case insensitive' -Body "| rn | task |`n| --- | --- |`n| rn12 | dcp35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":["DCP35"]}]'
     Invoke-ParserCase -Name '16 surrounding prose other tables' -Body "Intro text.`n`n| Name | Value |`n| --- | --- |`n| Noise | Table |`n`n| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |`n`nFooter text." -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":["DCP35"]}]'
+
+    # Comment-format cases (lock the sticky-comment structure).
+    Invoke-ParserCase -Name '17 comment format happy path' -Body "| RN | Task |`n| --- | --- |`n| RN12, RN13 | DCP35 |" -Actor 'human' -LabelsJson '["Change-Type:Minor"]' -ExpectedStatus 'passed' -ExpectedChangeType 'Minor' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12","RN13"]' -ExpectedPairsJson '-' -ExpectedCommentContains @(
+        '## PR RN/Task Validation: ✅ **Passed**',
+        '| Status | ✅ |',
+        '| Change-Type | Minor |',
+        '**Release Notes**',
+        '- [RN12](https://collaboration.dataminer.services/releasenotes/12)',
+        '- [RN13](https://collaboration.dataminer.services/releasenotes/13)',
+        '**Tasks**',
+        '- [DCP35](https://collaboration.dataminer.services/task/35)'
+    ) -ExpectedCommentMissing @('Dependabot RN-only mode', '| RN(s) | Task(s) |', 'Parsed RN ids')
+    Invoke-ParserCase -Name '18 comment format failed' -Body "| RN | Task |`n| --- | --- |`n| R12 | DCP35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-' -ExpectedCommentContains @(
+        '## PR RN/Task Validation: ❌ **Failed**',
+        '| Status | ❌ |',
+        'Validation errors:'
+    )
+    Invoke-ParserCase -Name '19 comment format dependabot rn only' -Body "| RN | Task |`n| --- | --- |`n| RN12 | |" -Actor 'dependabot[bot]' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":[]}]' -ExpectedCommentContains @(
+        '| Dependabot RN-only mode | Yes |',
+        '**Release Notes**',
+        '- [RN12](https://collaboration.dataminer.services/releasenotes/12)'
+    ) -ExpectedCommentMissing @('**Tasks**')
+    Invoke-ParserCase -Name '20 comment format dependabot with task' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |" -Actor 'dependabot[bot]' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":["DCP35"]}]' -ExpectedCommentContains @(
+        '| Dependabot RN-only mode | Yes |',
+        '**Tasks**',
+        '- [DCP35](https://collaboration.dataminer.services/task/35)'
+    )
 
     Write-Output 'All parse-rn-task-table cases passed.'
 } finally {

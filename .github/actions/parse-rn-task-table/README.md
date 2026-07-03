@@ -45,9 +45,71 @@ The action finds the markdown table with `RN` and `Task` header columns, parses 
 
 The parser does not fail the step for validation errors. It emits `status=failed` so the caller can still post the sticky comment before enforcing the gate.
 
+## Sticky comment example
+
+The action renders `comment-file`, which the reusable workflow posts as the `skyline-rn-task` sticky
+comment. RN and task ids link to their DataMiner collaboration pages.
+
+A passing PR:
+
+```markdown
+## PR RN/Task Validation: ✅ **Passed**
+
+| Item | Value |
+| --- | :---: |
+| Status | ✅ |
+| Change-Type | Minor |
+
+**Release Notes**
+
+- [RN12](https://collaboration.dataminer.services/releasenotes/12)
+- [RN13](https://collaboration.dataminer.services/releasenotes/13)
+
+**Tasks**
+
+- [DCP35](https://collaboration.dataminer.services/task/35)
+- [DCP66](https://collaboration.dataminer.services/task/66)
+```
+
+A Dependabot PR adds a `Dependabot RN-only mode` row, and the **Tasks** section is omitted unless a
+task is linked:
+
+```markdown
+## PR RN/Task Validation: ✅ **Passed**
+
+| Item | Value |
+| --- | :---: |
+| Status | ✅ |
+| Change-Type | Patch |
+| Dependabot RN-only mode | Yes |
+
+**Release Notes**
+
+- [RN99](https://collaboration.dataminer.services/releasenotes/99)
+```
+
+A failing PR shows a ❌ status and lists the validation errors:
+
+```markdown
+## PR RN/Task Validation: ❌ **Failed**
+
+| Item | Value |
+| --- | :---: |
+| Status | ❌ |
+| Change-Type | Patch |
+
+Validation errors:
+- Row 1: task id is required for non-Dependabot PRs.
+- At least one task id is required for non-Dependabot PRs.
+
+**Release Notes**
+
+- [RN12](https://collaboration.dataminer.services/releasenotes/12)
+```
+
 ## Tests
 
-The 16-case PR validation corpus runs through:
+The PR validation corpus runs through:
 
 ```powershell
 pwsh .github/actions/parse-rn-task-table/test.ps1

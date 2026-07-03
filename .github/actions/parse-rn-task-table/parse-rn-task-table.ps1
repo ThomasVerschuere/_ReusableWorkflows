@@ -253,30 +253,38 @@ function Write-ValidationComment {
     )
 
     $commentFile = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath 'rn-task-validation-comment.md'
-    $headingStatus = if ($Status -eq 'failed') { 'Failed' } else { 'Passed' }
-    $dependabotMode = if ($script:actor -eq 'dependabot[bot]') { 'yes' } else { 'no' }
+    $isDependabot = $script:actor -eq 'dependabot[bot]'
+    if ($Status -eq 'failed') {
+        $statusIcon = '❌'
+        $headingText = '**Failed**'
+    } else {
+        $statusIcon = '✅'
+        $headingText = '**Passed**'
+    }
+
+    $tasks = [System.Collections.Generic.List[string]]::new()
+    $seenTasks = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($pair in $script:pairs) {
+        foreach ($task in @($pair.tasks)) {
+            if ($seenTasks.Add($task)) {
+                $tasks.Add($task)
+            }
+        }
+    }
+
     $content = [System.Collections.Generic.List[string]]::new()
 
     $content.Add("<!-- ${script:commentHeader} -->")
-    $content.Add("## PR RN/Task Validation: ${headingStatus}")
+    $content.Add("## PR RN/Task Validation: ${statusIcon} ${headingText}")
     $content.Add('')
     $content.Add('| Item | Value |')
-    $content.Add('| --- | --- |')
-    $content.Add("| Status | ${Status} |")
+    $content.Add('| --- | :---: |')
+    $content.Add("| Status | ${statusIcon} |")
     $content.Add("| Change-Type | ${script:changeType} |")
-    $content.Add("| Dependabot RN-only mode | ${dependabotMode} |")
-    $content.Add('')
-
-    if ($script:pairs.Count -gt 0) {
-        $content.Add('| RN(s) | Task(s) |')
-        $content.Add('| --- | --- |')
-        foreach ($pair in $script:pairs) {
-            $rnsValue = [string]::Join(', ', @($pair.rns))
-            $tasksValue = if (@($pair.tasks).Count -eq 0) { '-' } else { [string]::Join(', ', @($pair.tasks)) }
-            $content.Add("| ${rnsValue} | ${tasksValue} |")
-        }
-        $content.Add('')
+    if ($isDependabot) {
+        $content.Add('| Dependabot RN-only mode | Yes |')
     }
+    $content.Add('')
 
     if ($script:errors.Count -gt 0) {
         $content.Add('Validation errors:')
@@ -287,7 +295,23 @@ function Write-ValidationComment {
     }
 
     if ($Rns.Count -gt 0) {
-        $content.Add("Parsed RN ids: $([string]::Join(', ', $Rns))")
+        $content.Add('**Release Notes**')
+        $content.Add('')
+        foreach ($rn in $Rns) {
+            $number = $rn -replace '\D', ''
+            $content.Add("- [${rn}](https://collaboration.dataminer.services/releasenotes/${number})")
+        }
+        $content.Add('')
+    }
+
+    if ($tasks.Count -gt 0) {
+        $content.Add('**Tasks**')
+        $content.Add('')
+        foreach ($task in $tasks) {
+            $number = $task -replace '\D', ''
+            $content.Add("- [${task}](https://collaboration.dataminer.services/task/${number})")
+        }
+        $content.Add('')
     }
 
     Set-Content -Path $commentFile -Value $content -Encoding utf8
