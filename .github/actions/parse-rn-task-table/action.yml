@@ -1,8 +1,8 @@
 name: Parse RN Task Table
 description: >
-  Parses the RN/Task markdown table from a pull request body, validates RN and
-  DCP task ids, resolves the Change-Type label, and renders a markdown summary
-  for a sticky PR comment.
+  Parses the "References:" line from a pull request body, validates the bracketed
+  RN and DCP task ids, resolves the Change-Type label, and renders a markdown
+  summary for a sticky PR comment.
 
 inputs:
   pr-body:
@@ -20,11 +20,11 @@ outputs:
     description: Validation result, either passed or failed.
     value: ${{ steps.parse.outputs.status }}
   rns:
-    description: JSON array of all normalized RN ids found in the table.
+    description: JSON array of all normalized RN ids found in the References line.
     value: ${{ steps.parse.outputs.rns }}
-  pairs:
-    description: JSON array of row groupings, each with rns and tasks arrays.
-    value: ${{ steps.parse.outputs.pairs }}
+  tasks:
+    description: JSON array of all normalized DCP task ids found in the References line.
+    value: ${{ steps.parse.outputs.tasks }}
   change-type:
     description: Resolved change type, one of Patch, Minor, or Major.
     value: ${{ steps.parse.outputs.change-type }}

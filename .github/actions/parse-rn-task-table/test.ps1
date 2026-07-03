@@ -53,9 +53,8 @@ function Invoke-ParserCase {
         [Parameter(Mandatory)][string]$LabelsJson,
         [Parameter(Mandatory)][string]$ExpectedStatus,
         [Parameter(Mandatory)][string]$ExpectedChangeType,
-        [Parameter(Mandatory)][string]$ExpectedPairCount,
         [Parameter(Mandatory)][string]$ExpectedRnsJson,
-        [Parameter(Mandatory)][string]$ExpectedPairsJson,
+        [Parameter(Mandatory)][string]$ExpectedTasksJson,
         [string[]]$ExpectedCommentContains = @(),
         [string[]]$ExpectedCommentMissing = @()
     )
@@ -80,7 +79,7 @@ function Invoke-ParserCase {
     $status = Get-OutputValue -Name 'status' -Path $outputFile
     $changeType = Get-OutputValue -Name 'change-type' -Path $outputFile
     $rns = Get-OutputValue -Name 'rns' -Path $outputFile
-    $pairs = Get-OutputValue -Name 'pairs' -Path $outputFile
+    $tasks = Get-OutputValue -Name 'tasks' -Path $outputFile
     $commentFile = Get-OutputValue -Name 'comment-file' -Path $outputFile
 
     Assert-Equal -Actual $status -Expected $ExpectedStatus -Label "${Name} status"
@@ -89,17 +88,12 @@ function Invoke-ParserCase {
         Assert-Equal -Actual $changeType -Expected $ExpectedChangeType -Label "${Name} change-type"
     }
 
-    if ($ExpectedPairCount -ne '-') {
-        $pairCount = @((ConvertFrom-Json -InputObject $pairs -NoEnumerate)).Count
-        Assert-Equal -Actual $pairCount -Expected ([int]$ExpectedPairCount) -Label "${Name} pair count"
-    }
-
     if ($ExpectedRnsJson -ne '-') {
         Assert-JsonEqual -Actual $rns -Expected $ExpectedRnsJson -Label "${Name} rns"
     }
 
-    if ($ExpectedPairsJson -ne '-') {
-        Assert-JsonEqual -Actual $pairs -Expected $ExpectedPairsJson -Label "${Name} pairs"
+    if ($ExpectedTasksJson -ne '-') {
+        Assert-JsonEqual -Actual $tasks -Expected $ExpectedTasksJson -Label "${Name} tasks"
     }
 
     if (-not (Test-Path -Path $commentFile -PathType Leaf)) {
@@ -122,25 +116,25 @@ function Invoke-ParserCase {
 }
 
 try {
-    Invoke-ParserCase -Name '01 happy path' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":["DCP35"]}]'
-    Invoke-ParserCase -Name '02 grouped ids in one row' -Body "| RN | Task |`n| --- | --- |`n| RN12, RN13 | DCP35, DCP66 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12","RN13"]' -ExpectedPairsJson '[{"rns":["RN12","RN13"],"tasks":["DCP35","DCP66"]}]'
-    Invoke-ParserCase -Name '03 multiple rows' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |`n| RN13 | DCP66 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '2' -ExpectedRnsJson '["RN12","RN13"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":["DCP35"]},{"rns":["RN13"],"tasks":["DCP66"]}]'
-    Invoke-ParserCase -Name '04 missing task regular' -Body "| RN | Task |`n| --- | --- |`n| RN12 | |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '05 task without rn' -Body "| RN | Task |`n| --- | --- |`n| | DCP35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '06 no table at all' -Body 'This pull request has no release note administration.' -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '07 header separator only' -Body "| RN | Task |`n| --- | --- |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '08 malformed rn' -Body "| RN | Task |`n| --- | --- |`n| R12 | DCP35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '09 malformed task' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP-35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '10 dependabot rn only' -Body "| RN | Task |`n| --- | --- |`n| RN12 | |" -Actor 'dependabot[bot]' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":[]}]'
-    Invoke-ParserCase -Name '11 dependabot branch human actor' -Body "| RN | Task |`n| --- | --- |`n| RN12 | |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '12 one change type label' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |" -Actor 'human' -LabelsJson '["Change-Type:Minor"]' -ExpectedStatus 'passed' -ExpectedChangeType 'Minor' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '13 two change type labels' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |" -Actor 'human' -LabelsJson '["Change-Type:Minor","Change-Type:Major"]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '14 no change type label' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '-'
-    Invoke-ParserCase -Name '15 case insensitive' -Body "| rn | task |`n| --- | --- |`n| rn12 | dcp35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":["DCP35"]}]'
-    Invoke-ParserCase -Name '16 surrounding prose other tables' -Body "Intro text.`n`n| Name | Value |`n| --- | --- |`n| Noise | Table |`n`n| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |`n`nFooter text." -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":["DCP35"]}]'
+    Invoke-ParserCase -Name '01 happy path' -Body "References: [RN12] [DCP35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '["DCP35"]'
+    Invoke-ParserCase -Name '02 multiple ids' -Body "References: [RN44205] [DCP284603] [RN4345] [DCP28543]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN44205","RN4345"]' -ExpectedTasksJson '["DCP284603","DCP28543"]'
+    Invoke-ParserCase -Name '03 references after description' -Body "This PR changes some things.`n`nMore context here.`n`nReferences: [RN12] [DCP35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '["DCP35"]'
+    Invoke-ParserCase -Name '04 missing task regular' -Body "References: [RN12]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-'
+    Invoke-ParserCase -Name '05 task without rn' -Body "References: [DCP35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-'
+    Invoke-ParserCase -Name '06 no references line' -Body 'This pull request has no references.' -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-'
+    Invoke-ParserCase -Name '07 references line empty' -Body "References:" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-'
+    Invoke-ParserCase -Name '08 malformed rn' -Body "References: [R12] [DCP35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-'
+    Invoke-ParserCase -Name '09 malformed task' -Body "References: [RN12] [DCP-35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-'
+    Invoke-ParserCase -Name '10 dependabot rn only' -Body "References: [RN12]" -Actor 'dependabot[bot]' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '[]'
+    Invoke-ParserCase -Name '11 dependabot branch human actor' -Body "References: [RN12]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-'
+    Invoke-ParserCase -Name '12 one change type label' -Body "References: [RN12] [DCP35]" -Actor 'human' -LabelsJson '["Change-Type:Minor"]' -ExpectedStatus 'passed' -ExpectedChangeType 'Minor' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '["DCP35"]'
+    Invoke-ParserCase -Name '13 two change type labels' -Body "References: [RN12] [DCP35]" -Actor 'human' -LabelsJson '["Change-Type:Minor","Change-Type:Major"]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-'
+    Invoke-ParserCase -Name '14 no change type label' -Body "References: [RN12] [DCP35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '["DCP35"]'
+    Invoke-ParserCase -Name '15 case insensitive' -Body "references: [rn12] [dcp35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '["DCP35"]'
+    Invoke-ParserCase -Name '16 duplicate ids deduped' -Body "References: [RN12] [RN12] [DCP35] [DCP35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '["DCP35"]'
 
     # Comment-format cases (lock the sticky-comment structure).
-    Invoke-ParserCase -Name '17 comment format happy path' -Body "| RN | Task |`n| --- | --- |`n| RN12, RN13 | DCP35 |" -Actor 'human' -LabelsJson '["Change-Type:Minor"]' -ExpectedStatus 'passed' -ExpectedChangeType 'Minor' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12","RN13"]' -ExpectedPairsJson '-' -ExpectedCommentContains @(
+    Invoke-ParserCase -Name '17 comment format happy path' -Body "References: [RN12] [RN13] [DCP35]" -Actor 'human' -LabelsJson '["Change-Type:Minor"]' -ExpectedStatus 'passed' -ExpectedChangeType 'Minor' -ExpectedRnsJson '["RN12","RN13"]' -ExpectedTasksJson '["DCP35"]' -ExpectedCommentContains @(
         '## PR RN/Task Validation: ✅ **Passed**',
         '| Status | ✅ |',
         '| Change-Type | Minor |',
@@ -150,17 +144,17 @@ try {
         '**Tasks**',
         '- [DCP35](https://collaboration.dataminer.services/task/35)'
     ) -ExpectedCommentMissing @('Dependabot RN-only mode', '| RN(s) | Task(s) |', 'Parsed RN ids')
-    Invoke-ParserCase -Name '18 comment format failed' -Body "| RN | Task |`n| --- | --- |`n| R12 | DCP35 |" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedPairCount '-' -ExpectedRnsJson '-' -ExpectedPairsJson '-' -ExpectedCommentContains @(
+    Invoke-ParserCase -Name '18 comment format failed' -Body "References: [R12] [DCP35]" -Actor 'human' -LabelsJson '[]' -ExpectedStatus 'failed' -ExpectedChangeType '-' -ExpectedRnsJson '-' -ExpectedTasksJson '-' -ExpectedCommentContains @(
         '## PR RN/Task Validation: ❌ **Failed**',
         '| Status | ❌ |',
         'Validation errors:'
     )
-    Invoke-ParserCase -Name '19 comment format dependabot rn only' -Body "| RN | Task |`n| --- | --- |`n| RN12 | |" -Actor 'dependabot[bot]' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":[]}]' -ExpectedCommentContains @(
+    Invoke-ParserCase -Name '19 comment format dependabot rn only' -Body "References: [RN12]" -Actor 'dependabot[bot]' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '[]' -ExpectedCommentContains @(
         '| Dependabot RN-only mode | Yes |',
         '**Release Notes**',
         '- [RN12](https://collaboration.dataminer.services/releasenotes/12)'
     ) -ExpectedCommentMissing @('**Tasks**')
-    Invoke-ParserCase -Name '20 comment format dependabot with task' -Body "| RN | Task |`n| --- | --- |`n| RN12 | DCP35 |" -Actor 'dependabot[bot]' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedPairCount '1' -ExpectedRnsJson '["RN12"]' -ExpectedPairsJson '[{"rns":["RN12"],"tasks":["DCP35"]}]' -ExpectedCommentContains @(
+    Invoke-ParserCase -Name '20 comment format dependabot with task' -Body "References: [RN12] [DCP35]" -Actor 'dependabot[bot]' -LabelsJson '[]' -ExpectedStatus 'passed' -ExpectedChangeType 'Patch' -ExpectedRnsJson '["RN12"]' -ExpectedTasksJson '["DCP35"]' -ExpectedCommentContains @(
         '| Dependabot RN-only mode | Yes |',
         '**Tasks**',
         '- [DCP35](https://collaboration.dataminer.services/task/35)'

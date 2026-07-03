@@ -608,9 +608,9 @@ jobs:
         uses: ./.github/actions/parse-rn-task-table
         with:
           pr-body: |
-            | RN | Task |
-            | --- | --- |
-            | RN12 | DCP35 |
+            Example change description.
+
+            References: [RN12] [DCP35]
           actor: human
           labels-json: '["Change-Type:Major"]'
 
@@ -619,15 +619,15 @@ jobs:
           STATUS: ${{ steps.rn-task.outputs.status }}
           CHANGE_TYPE: ${{ steps.rn-task.outputs.change-type }}
           RNS: ${{ steps.rn-task.outputs.rns }}
-          PAIRS: ${{ steps.rn-task.outputs.pairs }}
+          TASKS: ${{ steps.rn-task.outputs.tasks }}
         shell: pwsh
         run: |
           if ($env:STATUS -ne 'passed') { throw "Expected status passed, got '$env:STATUS'." }
           if ($env:CHANGE_TYPE -ne 'Major') { throw "Expected change-type Major, got '$env:CHANGE_TYPE'." }
           $rns = ConvertTo-Json -InputObject (ConvertFrom-Json -InputObject $env:RNS -NoEnumerate) -Compress -Depth 10
-          $pairs = ConvertTo-Json -InputObject (ConvertFrom-Json -InputObject $env:PAIRS -NoEnumerate) -Compress -Depth 10
+          $tasks = ConvertTo-Json -InputObject (ConvertFrom-Json -InputObject $env:TASKS -NoEnumerate) -Compress -Depth 10
           if ($rns -ne '["RN12"]') { throw "Unexpected RN output: $rns" }
-          if ($pairs -ne '[{"rns":["RN12"],"tasks":["DCP35"]}]') { throw "Unexpected pairs output: $pairs" }
+          if ($tasks -ne '["DCP35"]') { throw "Unexpected tasks output: $tasks" }
 
   quality-gate-summary:
     name: quality-gate-summary

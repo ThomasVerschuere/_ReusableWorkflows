@@ -16,10 +16,10 @@ $commentHeader = if ($null -ne $env:COMMENT_HEADER) { $env:COMMENT_HEADER } else
 $errors = [System.Collections.Generic.List[string]]::new()
 $allRns = [System.Collections.Generic.List[string]]::new()
 $seenRns = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-$pairs = [System.Collections.Generic.List[object]]::new()
+$allTasks = [System.Collections.Generic.List[string]]::new()
+$seenTasks = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $changeType = 'Patch'
-$tableFound = $false
-$dataRowCount = 0
+$referencesFound = $false
 
 function Add-ValidationError {
     param([Parameter(Mandatory)][string]$Message)
@@ -37,72 +37,15 @@ function ConvertTo-TrimmedValue {
     return $Value.Replace("`r", '').Trim()
 }
 
-function Get-MarkdownCells {
-    param([Parameter(Mandatory)][string]$Row)
-
-    $trimmedRow = ConvertTo-TrimmedValue -Value $Row
-    if ($trimmedRow.StartsWith('|', [System.StringComparison]::Ordinal)) {
-        $trimmedRow = $trimmedRow.Substring(1)
-    }
-
-    if ($trimmedRow.EndsWith('|', [System.StringComparison]::Ordinal)) {
-        $trimmedRow = $trimmedRow.Substring(0, $trimmedRow.Length - 1)
-    }
-
-    $cells = [System.Text.RegularExpressions.Regex]::Split($trimmedRow, '\|')
-    return @($cells | ForEach-Object { ConvertTo-TrimmedValue -Value $_ })
-}
-
-function Get-NormalizedHeader {
-    param([AllowNull()][string]$Value)
-
-    $trimmedValue = ConvertTo-TrimmedValue -Value $Value
-    return ([System.Text.RegularExpressions.Regex]::Replace($trimmedValue, '\s+', '')).ToLowerInvariant()
-}
-
-function Test-SeparatorCell {
-    param([AllowNull()][string]$Value)
-
-    $trimmedValue = ConvertTo-TrimmedValue -Value $Value
-    $normalizedValue = [System.Text.RegularExpressions.Regex]::Replace($trimmedValue.Replace(':', ''), '\s+', '')
-    return $normalizedValue -match '^-+$'
-}
-
 function ConvertTo-JsonArray {
     param([AllowNull()][object[]]$Value)
 
     $array = if ($null -eq $Value) { @() } else { @($Value) }
+    if ($array.Count -eq 0) {
+        return '[]'
+    }
+
     return ConvertTo-Json -InputObject ([object[]]$array) -Compress -Depth 10
-}
-
-function Get-ParsedIdCell {
-    param(
-        [AllowNull()][string]$RawCell,
-        [Parameter(Mandatory)][string]$Kind,
-        [Parameter(Mandatory)][int]$RowNumber,
-        [Parameter(Mandatory)][string]$Pattern,
-        [Parameter(Mandatory)][string]$Expected
-    )
-
-    $parsedIds = [System.Collections.Generic.List[string]]::new()
-    $trimmedCell = ConvertTo-TrimmedValue -Value $RawCell
-    if ([string]::IsNullOrWhiteSpace($trimmedCell)) {
-        return @()
-    }
-
-    $tokens = [System.Text.RegularExpressions.Regex]::Split($trimmedCell, ',')
-    foreach ($rawToken in $tokens) {
-        $token = ConvertTo-TrimmedValue -Value $rawToken
-        if ([string]::IsNullOrWhiteSpace($token)) {
-            Add-ValidationError -Message "Row ${RowNumber}: empty ${Kind} id in '${trimmedCell}'."
-        } elseif ($token -match $Pattern) {
-            $parsedIds.Add($token.ToUpperInvariant())
-        } else {
-            Add-ValidationError -Message "Row ${RowNumber}: malformed ${Kind} id '${token}' (expected ${Expected})."
-        }
-    }
-
-    return @($parsedIds.ToArray())
 }
 
 function Resolve-ChangeType {
@@ -142,114 +85,63 @@ function Resolve-ChangeType {
     }
 }
 
-function Add-Pair {
-    param(
-        [Parameter(Mandatory)][string[]]$Rns,
-        [AllowEmptyCollection()][string[]]$Tasks
-    )
+function Add-ReferenceId {
+    param([AllowEmptyString()][string]$RawToken)
 
-    $taskArray = @($Tasks)
-    $script:pairs.Add([PSCustomObject]@{
-        rns = [string[]]@($Rns)
-        tasks = [string[]]$taskArray
-    })
-}
-
-function Add-Rn {
-    param([Parameter(Mandatory)][string[]]$Rns)
-
-    foreach ($rn in $Rns) {
-        if ($script:seenRns.Add($rn)) {
-            $script:allRns.Add($rn)
-        }
-    }
-}
-
-function Parse-RnTaskTable {
-    $lines = [System.Text.RegularExpressions.Regex]::Split($script:prBody, "`r?`n")
-    $rnColumn = -1
-    $taskColumn = -1
-    $dataStart = -1
-
-    for ($index = 0; $index -lt $lines.Count; $index++) {
-        if (-not $lines[$index].Contains('|')) {
-            continue
-        }
-
-        $cells = Get-MarkdownCells -Row $lines[$index]
-        $rnColumn = -1
-        $taskColumn = -1
-
-        for ($column = 0; $column -lt $cells.Count; $column++) {
-            switch (Get-NormalizedHeader -Value $cells[$column]) {
-                'rn' { $rnColumn = $column }
-                'task' { $taskColumn = $column }
-            }
-        }
-
-        if ($rnColumn -ge 0 -and $taskColumn -ge 0 -and ($index + 1) -lt $lines.Count) {
-            $separatorCells = Get-MarkdownCells -Row $lines[$index + 1]
-            if ($separatorCells.Count -gt $rnColumn -and $separatorCells.Count -gt $taskColumn -and
-                (Test-SeparatorCell -Value $separatorCells[$rnColumn]) -and
-                (Test-SeparatorCell -Value $separatorCells[$taskColumn])) {
-                $script:tableFound = $true
-                $dataStart = $index + 2
-                break
-            }
-        }
-    }
-
-    if (-not $script:tableFound) {
-        Add-ValidationError -Message 'Could not find an RN/Task markdown table with header columns RN and Task.'
+    $token = ConvertTo-TrimmedValue -Value $RawToken
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        Add-ValidationError -Message 'Empty reference id found (expected [RN<number>] or [DCP<number>]).'
         return
     }
 
-    for ($index = $dataStart; $index -lt $lines.Count; $index++) {
-        if (-not $lines[$index].Contains('|')) {
-            break
+    if ($token -match '^RN\d+$') {
+        $normalized = $token.ToUpperInvariant()
+        if ($script:seenRns.Add($normalized)) {
+            $script:allRns.Add($normalized)
         }
-
-        $cells = Get-MarkdownCells -Row $lines[$index]
-        if ($cells.Count -le $rnColumn -or $cells.Count -le $taskColumn) {
-            break
+    } elseif ($token -match '^DCP\d+$') {
+        $normalized = $token.ToUpperInvariant()
+        if ($script:seenTasks.Add($normalized)) {
+            $script:allTasks.Add($normalized)
         }
+    } else {
+        Add-ValidationError -Message "Malformed reference id '${token}' (expected [RN<number>] or [DCP<number>])."
+    }
+}
 
-        if ((Test-SeparatorCell -Value $cells[$rnColumn]) -and (Test-SeparatorCell -Value $cells[$taskColumn])) {
-            continue
-        }
+function Parse-References {
+    $lines = [System.Text.RegularExpressions.Regex]::Split($script:prBody, "`r?`n")
+    $referencesContent = $null
 
-        $script:dataRowCount++
-        $rowNumber = $script:dataRowCount
-        $rowRns = [string[]]@(Get-ParsedIdCell -RawCell $cells[$rnColumn] -Kind 'RN' -RowNumber $rowNumber -Pattern '^RN\d+$' -Expected 'RN followed by digits' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-        $rowTasks = [string[]]@(Get-ParsedIdCell -RawCell $cells[$taskColumn] -Kind 'task' -RowNumber $rowNumber -Pattern '^DCP\d+$' -Expected 'DCP followed by digits' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-
-        if ($rowRns.Count -eq 0 -and $rowTasks.Count -eq 0) {
-            Add-ValidationError -Message "Row ${rowNumber}: at least one RN id is required."
-        }
-
-        if ($rowRns.Count -eq 0 -and $rowTasks.Count -gt 0) {
-            Add-ValidationError -Message "Row ${rowNumber}: task ids require at least one linked RN id."
-        }
-
-        if ($script:actor -ne 'dependabot[bot]' -and $rowRns.Count -gt 0 -and $rowTasks.Count -eq 0) {
-            Add-ValidationError -Message "Row ${rowNumber}: task id is required for non-Dependabot PRs."
-        }
-
-        if ($rowRns.Count -gt 0) {
-            Add-Rn -Rns $rowRns
-            Add-Pair -Rns $rowRns -Tasks $rowTasks
+    foreach ($line in $lines) {
+        $match = [System.Text.RegularExpressions.Regex]::Match($line, '^\s*References:\s*(.*)$', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if ($match.Success) {
+            $script:referencesFound = $true
+            $referencesContent = $match.Groups[1].Value
         }
     }
 
-    if ($script:dataRowCount -eq 0) {
-        Add-ValidationError -Message 'The RN/Task table has no data rows.'
+    if (-not $script:referencesFound) {
+        Add-ValidationError -Message 'Could not find a "References:" line in the PR description (expected e.g. "References: [RN12] [DCP35]").'
+        return
+    }
+
+    $tokenMatches = [System.Text.RegularExpressions.Regex]::Matches($referencesContent, '\[([^\]]*)\]')
+    if ($tokenMatches.Count -eq 0) {
+        Add-ValidationError -Message 'The "References:" line contains no [RN<number>]/[DCP<number>] ids.'
+        return
+    }
+
+    foreach ($tokenMatch in $tokenMatches) {
+        Add-ReferenceId -RawToken $tokenMatch.Groups[1].Value
     }
 }
 
 function Write-ValidationComment {
     param(
         [Parameter(Mandatory)][string]$Status,
-        [AllowEmptyCollection()][string[]]$Rns
+        [AllowEmptyCollection()][string[]]$Rns,
+        [AllowEmptyCollection()][string[]]$Tasks
     )
 
     $commentFile = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath 'rn-task-validation-comment.md'
@@ -260,16 +152,6 @@ function Write-ValidationComment {
     } else {
         $statusIcon = '✅'
         $headingText = '**Passed**'
-    }
-
-    $tasks = [System.Collections.Generic.List[string]]::new()
-    $seenTasks = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($pair in $script:pairs) {
-        foreach ($task in @($pair.tasks)) {
-            if ($seenTasks.Add($task)) {
-                $tasks.Add($task)
-            }
-        }
     }
 
     $content = [System.Collections.Generic.List[string]]::new()
@@ -323,34 +205,30 @@ function Write-ValidationComment {
 }
 
 Resolve-ChangeType
-Parse-RnTaskTable
+Parse-References
 
 $rns = [string[]]@($allRns.ToArray())
+$tasks = [string[]]@($allTasks.ToArray())
 $rnsJson = ConvertTo-JsonArray -Value $rns
-$pairsJson = ConvertTo-Json -InputObject ([object[]]$pairs.ToArray()) -Compress -Depth 10
+$tasksJson = ConvertTo-JsonArray -Value $tasks
 
-if ($tableFound) {
+if ($referencesFound) {
     if ($rns.Count -eq 0) {
         Add-ValidationError -Message 'At least one RN id is required.'
     }
 
-    $taskCount = 0
-    foreach ($pair in $pairs) {
-        $taskCount += @($pair.tasks).Count
-    }
-
-    if ($actor -ne 'dependabot[bot]' -and $taskCount -eq 0) {
+    if ($actor -ne 'dependabot[bot]' -and $tasks.Count -eq 0) {
         Add-ValidationError -Message 'At least one task id is required for non-Dependabot PRs.'
     }
 }
 
 $status = if ($errors.Count -gt 0) { 'failed' } else { 'passed' }
-$commentFile = Write-ValidationComment -Status $status -Rns $rns
+$commentFile = Write-ValidationComment -Status $status -Rns $rns -Tasks $tasks
 
 @(
     "status=${status}"
     "rns=${rnsJson}"
-    "pairs=${pairsJson}"
+    "tasks=${tasksJson}"
     "change-type=${changeType}"
     "comment-file=${commentFile}"
 ) | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8

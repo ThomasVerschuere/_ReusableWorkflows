@@ -1,8 +1,8 @@
 # parse-rn-task-table
 
-Parses the RN/Task table in a pull request description and validates the mandatory DxM release administration.
+Parses the `References:` line in a pull request description and validates the mandatory DxM release administration.
 
-The action finds the markdown table with `RN` and `Task` header columns, parses comma-separated ids per row, normalizes ids to upper-case, validates the id format, resolves the `Change-Type` label, and writes a markdown summary for the `skyline-rn-task` sticky PR comment.
+The action finds the `References:` line (e.g. `References: [RN44205] [DCP284603] [RN4345] [DCP28543]`), extracts the bracketed ids, normalizes them to upper-case, validates the id format, resolves the `Change-Type` label, and writes a markdown summary for the `skyline-rn-task` sticky PR comment.
 
 ## Inputs
 
@@ -18,23 +18,25 @@ The action finds the markdown table with `RN` and `Task` header columns, parses 
 | --- | --- |
 | `status` | `passed` or `failed`. |
 | `rns` | JSON array of all normalized RN ids. |
-| `pairs` | JSON array of row groupings, each shaped as `{ "rns": [...], "tasks": [...] }`. |
+| `tasks` | JSON array of all normalized DCP task ids. |
 | `change-type` | `Patch`, `Minor`, or `Major`. No `Change-Type:*` label resolves to `Patch`. |
 | `comment-file` | Absolute path to the rendered markdown summary. |
 
 ## Rules
 
+- Ids are declared on a single `References:` line, each wrapped in square brackets, for example
+  `References: [RN12] [DCP35]`.
 - RN ids must match `RN` followed by digits, for example `RN12`.
 - Task ids must match `DCP` followed by digits, for example `DCP35`.
-- Multiple ids in one cell are comma-separated and treated as one linked grouping.
-- Regular PRs require at least one RN and at least one task, and every RN row must have a task.
+- Ids may appear in any order; duplicates are de-duplicated.
+- Regular PRs require at least one RN and at least one task.
 - `dependabot[bot]` PRs require an RN only; a human on a `dependabot/*` branch is not exempt.
 - At most one `Change-Type:*` label is allowed. Valid values are `Patch`, `Minor`, and `Major`.
 
 ## Usage
 
 ```yaml
-- name: Parse RN/Task table
+- name: Parse RN/Task references
   id: rn-task
   uses: SkylineCommunications/_ReusableWorkflows/.github/actions/parse-rn-task-table@main
   with:
