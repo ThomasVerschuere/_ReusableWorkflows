@@ -24,10 +24,14 @@ Before using this workflow, your project must have:
 
 ## Usage with `Playwright Docker ACR Workflow.yml`
 
-### 1. Copy this Dockerfile to your repository root
+### 1. Copy template files to your repository root
 
 ```bash
+# Copy Dockerfile
 cp templates/playwright-dotnet-dockerfile/Dockerfile ./Dockerfile
+
+# Copy .dockerignore (optional but recommended)
+cp templates/playwright-dotnet-dockerfile/.dockerignore ./.dockerignore
 ```
 
 ### 2. Customize the Dockerfile
@@ -110,6 +114,7 @@ YourRepo/
 │   └── workflows/
 │       └── playwright-docker.yml
 ├── Dockerfile                              # This template, customized
+├── .dockerignore                           # (Optional) Excludes unnecessary files from build
 ├── YourProject.LiveServiceTesting/
 │   ├── YourProject.LiveServiceTesting.csproj
 │   ├── dotnetPlaywright.sh                 # Test execution script
