@@ -63,7 +63,10 @@ jobs:
       image-name: ${{ env.IMAGE_NAME }}
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
-    secrets: inherit
+    secrets:
+      LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.LIVESERVICETESTS_ACR_LOGIN_SERVER }}
+      LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.LIVESERVICETESTS_ACR_USERNAME }}
+      LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.LIVESERVICETESTS_ACR_PASSWORD }}
 ```
 
 **What you need to customize:**
@@ -73,40 +76,7 @@ jobs:
 **What you can leave as-is:**
 - ✅ Everything else! The rest of the workflow is ready to use.
 
----
-
-**Alternative: Using your own ACR credentials**
-
-If you're using your own ACR instead of the LiveServiceTests ACR:
-
-```yaml
-name: Build and Push Playwright Tests
-
-# Customize these values for your project
-env:
-  PROJECT_PATH: 'YourProject.LiveServiceTesting'
-  IMAGE_NAME: 'your-tests'
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
-
-jobs:
-  build-and-push:
-    uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
-    with:
-      project-path: ${{ env.PROJECT_PATH }}
-      image-name: ${{ env.IMAGE_NAME }}
-      dockerfile-path: 'Dockerfile'
-      dotnet-version: '8.x'
-    secrets:
-      # Map your own ACR secrets to the expected names
-      LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.YOUR_ACR_LOGIN_SERVER }}
-      LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.YOUR_ACR_USERNAME }}
-      LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.YOUR_ACR_PASSWORD }}
-```
+**Note:** Once organization secrets are configured, you can simplify the `secrets:` section to just `secrets: inherit`.
 
 **Image tagging:**  
 The workflow pushes images tagged as `latest` by default to minimize ACR storage usage. Each push overwrites the previous image.
