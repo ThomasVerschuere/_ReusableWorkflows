@@ -82,6 +82,47 @@ That's it! Everything else can stay as-is.
 
 **Note:** Once organization secrets are configured, you can simplify the `secrets:` section to just `secrets: inherit`.
 
+### Workflow Triggers
+
+The template defaults to **manual trigger only** (`workflow_dispatch`). You can customize based on your needs:
+
+**Manual only (default):**
+```yaml
+on:
+  workflow_dispatch:
+```
+
+**Automatic on every push to main:**
+```yaml
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+```
+
+**On pull requests (for testing before merge):**
+```yaml
+on:
+  pull_request:
+  workflow_dispatch:
+```
+
+**On releases:**
+```yaml
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+```
+
+**Scheduled (e.g., nightly):**
+```yaml
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Every day at 2 AM UTC
+  workflow_dispatch:
+```
+
 **Image tagging:**  
 The workflow pushes images tagged as `latest` by default to minimize ACR storage usage. Each push overwrites the previous image.
 
