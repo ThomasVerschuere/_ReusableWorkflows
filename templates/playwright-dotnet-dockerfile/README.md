@@ -8,7 +8,8 @@ This template Dockerfile packages Playwright .NET test projects for deployment t
 - [ ] Copy `Dockerfile` to repository root (no customization needed!)
 - [ ] Copy `.dockerignore` to repository root (optional)
 - [ ] Create `.github/workflows/playwright-docker.yml`
-- [ ] Configure ACR secrets (your own or request LiveServiceTests access)
+- [ ] Update `PROJECT_PATH` and `IMAGE_NAME` at the top of the workflow file
+- [ ] Request ACR access from Thomas or configure your own ACR secrets
 - [ ] Push and verify workflow runs successfully
 
 **Reference example:** [SLC-RT-DaaS repository](https://github.com/SkylineCommunications/SLC-RT-DaaS)
@@ -43,6 +44,11 @@ Create `.github/workflows/playwright-docker.yml`:
 ```yaml
 name: Build and Push Playwright Tests
 
+# Customize these values for your project
+env:
+  PROJECT_PATH: 'YourProject.LiveServiceTesting'  # Your LiveServiceTesting project folder
+  IMAGE_NAME: 'your-tests'                        # Your ACR image name (lowercase only)
+
 on:
   push:
     branches: [main]
@@ -53,44 +59,53 @@ jobs:
   build-and-push:
     uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
     with:
-      # TODO: Update with your project folder name (e.g., MyApp.LiveServiceTesting)
-      project-path: 'YourProject.LiveServiceTesting'
-      
-      # TODO: Update with your desired image name (lowercase only, e.g., myapp-tests)
-      image-name: 'your-tests'
-      
-      # Usually leave these as-is unless you have specific requirements
+      project-path: ${{ env.PROJECT_PATH }}
+      image-name: ${{ env.IMAGE_NAME }}
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
-    secrets:
-      # Map your ACR secrets to the expected names
-      LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.YOUR_ACR_LOGIN_SERVER }}
-      LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.YOUR_ACR_USERNAME }}
-      LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.YOUR_ACR_PASSWORD }}
+    secrets: inherit
 ```
 
 **What you need to customize:**
-- ✏️ `project-path` - Your LiveServiceTesting project folder name
-- ✏️ `image-name` - Your desired ACR image name (must be lowercase)
-- ✏️ Secret values in your repository settings
+- ✏️ **Lines 4-5**: Update `PROJECT_PATH` and `IMAGE_NAME` at the top of the file
+- ✏️ **Repository secrets**: Request ACR access from Thomas (see step 3 below)
 
 **What you can leave as-is:**
-- ✅ `dockerfile-path: 'Dockerfile'` (unless you renamed it)
-- ✅ `dotnet-version: '8.x'` (unless using different version)
-- ✅ The `uses:` line pointing to the reusable workflow
-- ✅ Trigger conditions (on push/PR/workflow_dispatch)
+- ✅ Everything else! The rest of the workflow is ready to use.
 
-**Once you have been provisioned the LiveServiceTests ACR secrets** (after contacting Thomas), simplify the secrets section:
+---
+
+**Alternative: Using your own ACR credentials**
+
+If you're using your own ACR instead of the LiveServiceTests ACR:
+
 ```yaml
+name: Build and Push Playwright Tests
+
+# Customize these values for your project
+env:
+  PROJECT_PATH: 'YourProject.LiveServiceTesting'
+  IMAGE_NAME: 'your-tests'
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
 jobs:
   build-and-push:
     uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
     with:
-      project-path: 'YourProject.LiveServiceTesting'  # TODO: Update this
-      image-name: 'your-tests'                        # TODO: Update this
+      project-path: ${{ env.PROJECT_PATH }}
+      image-name: ${{ env.IMAGE_NAME }}
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
-    secrets: inherit  # ✅ Automatically passes LIVESERVICETESTS_ACR_* secrets
+    secrets:
+      # Map your own ACR secrets to the expected names
+      LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.YOUR_ACR_LOGIN_SERVER }}
+      LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.YOUR_ACR_USERNAME }}
+      LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.YOUR_ACR_PASSWORD }}
 ```
 
 **Image tagging:**  
