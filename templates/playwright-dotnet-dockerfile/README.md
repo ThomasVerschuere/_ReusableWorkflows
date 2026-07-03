@@ -2,6 +2,26 @@
 
 This template Dockerfile packages Playwright .NET test projects for deployment to Azure Container Registry.
 
+## Quick Start Checklist
+
+- [ ] Your project has `dotnetPlaywright.sh` and `config.json` in the project folder
+- [ ] Copy `Dockerfile` to repository root
+- [ ] Update `ARG PROJECT_NAME` in Dockerfile
+- [ ] Create `.github/workflows/playwright-docker.yml`
+- [ ] Configure ACR secrets (your own or request LiveServiceTests access)
+- [ ] Push and verify workflow runs successfully
+
+**Reference example:** [SLC-RT-DaaS repository](https://github.com/SkylineCommunications/SLC-RT-DaaS)
+
+## Prerequisites
+
+Before using this workflow, your project must have:
+
+- ✅ A Playwright .NET test project (e.g., `YourProject.LiveServiceTesting`)
+- ✅ `dotnetPlaywright.sh` - Bash script that runs your tests
+- ✅ `config.json` - Test configuration file
+- ✅ Azure Container Registry credentials (or request LiveServiceTests ACR access)
+
 ## Usage with `Playwright Docker ACR Workflow.yml`
 
 ### 1. Copy this Dockerfile to your repository root
@@ -136,3 +156,25 @@ ENV YOUR_CUSTOM_VAR=value
 ## Based on
 
 This template is derived from the `SLC-RT-DaaS` reference implementation.
+
+## Troubleshooting
+
+### Workflow fails with "dotnet publish" error
+- ✅ Verify `project-path` input matches your actual folder name
+- ✅ Ensure the `.csproj` file exists at `{project-path}/{project-path}.csproj`
+
+### Docker build fails with "no such file or directory" on COPY
+- ✅ Check `ARG PROJECT_NAME` matches your folder name exactly
+- ✅ Verify `dotnetPlaywright.sh` and `config.json` exist in your project folder
+
+### Docker login fails
+- ✅ Verify secrets are configured in repository settings
+- ✅ Check secret names match exactly: `LIVESERVICETESTS_ACR_LOGIN_SERVER`, etc.
+- ✅ Ensure ACR credentials are valid (test with `docker login` locally)
+
+### Image pushes but doesn't run tests
+- ✅ Check `dotnetPlaywright.sh` has Unix line endings (LF, not CRLF)
+- ✅ Verify `config.json` is valid JSON
+- ✅ Ensure `TESTFOLDERPATH` environment variable points to `/app/tests/`
+
+**Need help?** Contact **Thomas Verschuere** ([email](mailto:thomas.verschuere@skyline.be) | [Teams](https://teams.microsoft.com/l/chat/0/0?users=thomas.verschuere@skyline.be))
