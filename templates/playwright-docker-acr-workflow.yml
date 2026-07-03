@@ -1,0 +1,25 @@
+name: Build and Push Playwright Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
+    with:
+      # ============================================
+      # TODO: Customize these values for your project
+      # ============================================
+      project-path: 'YourProject.LiveServiceTesting'  # Your LiveServiceTesting project folder
+      image-name: 'your-tests'                        # Your ACR image name (lowercase only)
+      # ============================================
+      
+      dockerfile-path: 'Dockerfile'
+      dotnet-version: '8.x'
+    secrets:
+      LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.LIVESERVICETESTS_ACR_LOGIN_SERVER }}
+      LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.LIVESERVICETESTS_ACR_USERNAME }}
+      LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.LIVESERVICETESTS_ACR_PASSWORD }}

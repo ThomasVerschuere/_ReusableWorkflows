@@ -2,13 +2,42 @@
 
 This template Dockerfile packages Playwright .NET test projects for deployment to Azure Container Registry.
 
+## Quick Start
+
+**Just copy and customize!**
+
+1. **Copy the workflow template:**
+   ```bash
+   cp templates/playwright-docker-acr-workflow.yml .github/workflows/playwright-docker.yml
+   ```
+
+2. **Copy the Dockerfile:**
+   ```bash
+   cp templates/Dockerfile ./Dockerfile
+   ```
+
+3. **Copy .dockerignore (optional but recommended):**
+   ```bash
+   cp templates/.dockerignore ./.dockerignore
+   ```
+
+4. **Update the TODO values** in `.github/workflows/playwright-docker.yml` (lines 15-16)
+
+5. **Request ACR access** from Thomas Verschuere (see step 3 below) or configure your own ACR secrets
+
+6. **Push and verify** the workflow runs successfully
+
+**Reference example:** [SLC-RT-DaaS repository](https://github.com/SkylineCommunications/SLC-RT-DaaS)
+
+---
+
 ## Quick Start Checklist
 
 - [ ] Your project has `dotnetPlaywright.sh` and `config.json` in the project folder
-- [ ] Copy `Dockerfile` to repository root (no customization needed!)
-- [ ] Copy `.dockerignore` to repository root (optional)
-- [ ] Create `.github/workflows/playwright-docker.yml`
-- [ ] Update `project-path` and `image-name` (between the separator lines in the workflow)
+- [ ] Copy `templates/playwright-docker-acr-workflow.yml` to `.github/workflows/playwright-docker.yml`
+- [ ] Copy `templates/Dockerfile` to repository root
+- [ ] Copy `templates/.dockerignore` to repository root (optional)
+- [ ] Update `project-path` and `image-name` in the workflow file (lines 15-16)
 - [ ] Request ACR access from Thomas or configure your own ACR secrets
 - [ ] Push and verify workflow runs successfully
 
@@ -25,56 +54,31 @@ Before using this workflow, your project must have:
 
 ## Usage with `Playwright Docker ACR Workflow.yml`
 
-### 1. Copy template files to your repository root
+### 1. Copy template files to your repository
 
 ```bash
+# Copy workflow template
+cp templates/playwright-docker-acr-workflow.yml .github/workflows/playwright-docker.yml
+
 # Copy Dockerfile (no customization needed!)
-cp templates/playwright-dotnet-dockerfile/Dockerfile ./Dockerfile
+cp templates/Dockerfile ./Dockerfile
 
 # Copy .dockerignore (optional but recommended)
-cp templates/playwright-dotnet-dockerfile/.dockerignore ./.dockerignore
+cp templates/.dockerignore ./.dockerignore
 ```
 
 **No Dockerfile customization required!** The workflow automatically passes your `project-path` to the Dockerfile as a build argument.
 
-### 2. Create your workflow file
+### 2. Customize your workflow file
 
-Create `.github/workflows/playwright-docker.yml`:
+Open `.github/workflows/playwright-docker.yml` and update lines 15-16 (between the separator lines):
 
 ```yaml
-name: Build and Push Playwright Tests
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
-
-jobs:
-  build-and-push:
-    uses: SkylineCommunications/_ReusableWorkflows/.github/workflows/Playwright Docker ACR Workflow.yml@main
-    with:
-      # ============================================
-      # TODO: Customize these values for your project
-      # ============================================
-      project-path: 'YourProject.LiveServiceTesting'  # Your LiveServiceTesting project folder
-      image-name: 'your-tests'                        # Your ACR image name (lowercase only)
-      # ============================================
-      
-      dockerfile-path: 'Dockerfile'
-      dotnet-version: '8.x'
-    secrets:
-      LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.LIVESERVICETESTS_ACR_LOGIN_SERVER }}
-      LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.LIVESERVICETESTS_ACR_USERNAME }}
-      LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.LIVESERVICETESTS_ACR_PASSWORD }}
+project-path: 'YourProject.LiveServiceTesting'  # Your LiveServiceTesting project folder
+image-name: 'your-tests'                        # Your ACR image name (lowercase only)
 ```
 
-**What you need to customize:**
-- ✏️ **Lines 15-16** (between the separator lines): Update `project-path` and `image-name`
-- ✏️ **Repository secrets**: Request ACR access from Thomas (see step 3 below)
-
-**What you can leave as-is:**
-- ✅ Everything else! The rest of the workflow is ready to use.
+That's it! Everything else can stay as-is.
 
 **Note:** Once organization secrets are configured, you can simplify the `secrets:` section to just `secrets: inherit`.
 
