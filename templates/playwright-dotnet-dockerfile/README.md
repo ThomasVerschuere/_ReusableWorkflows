@@ -47,17 +47,23 @@ jobs:
 **Image tagging:**  
 The workflow pushes images tagged as `latest` by default to minimize ACR storage usage. Each push overwrites the previous image.
 
-Need different tagging strategies (test/qa/prod)? Contact the maintainers to discuss `image-tag` configuration options.
+Need different tagging strategies (test/qa/prod)? Contact **Thomas Verschuere** ([email](mailto:thomas.verschuere@skyline.be) | [Teams](https://teams.microsoft.com/l/chat/0/0?users=thomas.verschuere@skyline.be)) to discuss `image-tag` configuration options.
 
-### 4. Configure repository secrets
+### 4. Request ACR access
 
-Request access to the LiveServiceTests ACR through the official request form, then these secrets will be added to your repository:
+**To get started, contact Thomas Verschuere:**
+- 📧 Email: [thomas.verschuere@skyline.be](mailto:thomas.verschuere@skyline.be)
+- 💬 Teams: [Start chat](https://teams.microsoft.com/l/chat/0/0?users=thomas.verschuere@skyline.be)
+
+After your request is approved, the following secrets will be provisioned to your repository:
 
 - `LIVESERVICETESTS_ACR_REGISTRY` - Azure Container Registry URL
 - `LIVESERVICETESTS_ACR_USERNAME` - ACR username  
 - `LIVESERVICETESTS_ACR_PASSWORD` - ACR password
 
-**Note:** For SkylineCommunications repositories, `secrets: inherit` automatically passes all repository secrets to the reusable workflow.
+**Note:** A self-service request form is being developed. Until then, reach out directly.
+
+**For SkylineCommunications repositories:** Once secrets are added, `secrets: inherit` in your workflow automatically passes them to the reusable workflow.
 
 **Using your own ACR credentials?** Map your secrets explicitly:
 ```yaml
