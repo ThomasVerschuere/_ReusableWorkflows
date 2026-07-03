@@ -51,11 +51,11 @@ Need different tagging strategies (test/qa/prod)? Contact the maintainers to dis
 
 ### 4. Configure repository secrets
 
-Add these secrets to your repository (Settings → Secrets and variables → Actions → Repository secrets):
+Request access to the LiveServiceTests ACR through the official request form, then these secrets will be added to your repository:
 
-- `ACR_REGISTRY` - Azure Container Registry URL (e.g., `myregistry.azurecr.io`)
-- `ACR_USERNAME` - ACR username
-- `ACR_PASSWORD` - ACR password or token
+- `LIVESERVICETESTS_ACR_REGISTRY` - Azure Container Registry URL
+- `LIVESERVICETESTS_ACR_USERNAME` - ACR username  
+- `LIVESERVICETESTS_ACR_PASSWORD` - ACR password
 
 **Note:** For SkylineCommunications repositories, `secrets: inherit` automatically passes all repository secrets to the reusable workflow.
 
