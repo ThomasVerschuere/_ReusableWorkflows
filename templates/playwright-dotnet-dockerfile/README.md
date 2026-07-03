@@ -45,6 +45,15 @@ jobs:
       image-name: 'your-tests'                        # Desired ACR image name
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
+    secrets:
+      # Map your ACR secrets to the expected names
+      LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.YOUR_ACR_LOGIN_SERVER }}
+      LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.YOUR_ACR_USERNAME }}
+      LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.YOUR_ACR_PASSWORD }}
+```
+
+**Once you have been provisioned the LiveServiceTests ACR secrets** (after contacting Thomas), you can simplify to:
+```yaml
     secrets: inherit
 ```
 
@@ -67,15 +76,9 @@ After your request is approved, the following secrets will be provisioned to you
 
 **Note:** A self-service request form is being developed. Until then, reach out directly.
 
-**For SkylineCommunications repositories:** Once secrets are added, `secrets: inherit` in your workflow automatically passes them to the reusable workflow.
+**Until you receive provisioned secrets,** use your own ACR credentials with explicit mapping (shown in step 3 above).
 
-**Using your own ACR credentials?** Map your secrets explicitly:
-```yaml
-secrets:
-  LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.YOUR_ACR_LOGIN_SERVER }}
-  LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.YOUR_ACR_USERNAME }}
-  LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.YOUR_ACR_PASSWORD }}
-```
+**After secrets are provisioned,** you can simplify your workflow to use `secrets: inherit` instead of explicit mapping.
 
 ## Project structure requirements
 
