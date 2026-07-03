@@ -50,6 +50,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate image name
+        run: |
+          if [[ "${{ inputs.image-name }}" =~ [A-Z] ]]; then
+            echo "❌ Error: image-name must be lowercase for Azure Container Registry"
+            echo "Got: ${{ inputs.image-name }}"
+            exit 1
+          fi
+        shell: bash
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -84,6 +93,8 @@ jobs:
           context: .
           file: ${{ inputs.dockerfile-path }}
           push: true
+          build-args: |
+            PROJECT_PATH=${{ inputs.project-path }}
           tags: |
             ${{ secrets.LIVESERVICETESTS_ACR_LOGIN_SERVER }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
             ${{ inputs.include-sha-tag && format('{0}/{1}:{2}', secrets.LIVESERVICETESTS_ACR_LOGIN_SERVER, inputs.image-name, github.sha) || '' }}

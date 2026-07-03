@@ -5,8 +5,8 @@ This template Dockerfile packages Playwright .NET test projects for deployment t
 ## Quick Start Checklist
 
 - [ ] Your project has `dotnetPlaywright.sh` and `config.json` in the project folder
-- [ ] Copy `Dockerfile` to repository root
-- [ ] Update `ARG PROJECT_NAME` in Dockerfile
+- [ ] Copy `Dockerfile` to repository root (no customization needed!)
+- [ ] Copy `.dockerignore` to repository root (optional)
 - [ ] Create `.github/workflows/playwright-docker.yml`
 - [ ] Configure ACR secrets (your own or request LiveServiceTests access)
 - [ ] Push and verify workflow runs successfully
@@ -27,28 +27,16 @@ Before using this workflow, your project must have:
 ### 1. Copy template files to your repository root
 
 ```bash
-# Copy Dockerfile
+# Copy Dockerfile (no customization needed!)
 cp templates/playwright-dotnet-dockerfile/Dockerfile ./Dockerfile
 
 # Copy .dockerignore (optional but recommended)
 cp templates/playwright-dotnet-dockerfile/.dockerignore ./.dockerignore
 ```
 
-### 2. Customize the Dockerfile
+**No Dockerfile customization required!** The workflow automatically passes your `project-path` to the Dockerfile as a build argument.
 
-Update the `ARG PROJECT_NAME` value at the top of the Dockerfile with your project folder name:
-
-```dockerfile
-# Change this line:
-ARG PROJECT_NAME=YourProject.LiveServiceTesting
-
-# To your actual project name, for example:
-ARG PROJECT_NAME=MyApp.LiveServiceTesting
-```
-
-That's it! The `${PROJECT_NAME}` variable is automatically used in all COPY commands, so you only need to change it once.
-
-### 3. Create your workflow file
+### 2. Create your workflow file
 
 Create `.github/workflows/playwright-docker.yml`:
 
@@ -86,7 +74,7 @@ The workflow pushes images tagged as `latest` by default to minimize ACR storage
 
 Need different tagging strategies (test/qa/prod)? Contact **Thomas Verschuere** ([email](mailto:thomas.verschuere@skyline.be) | [Teams](https://teams.microsoft.com/l/chat/0/0?users=thomas.verschuere@skyline.be)) to discuss `image-tag` configuration options.
 
-### 4. Request ACR access
+### 3. Request ACR access
 
 **To get started, contact Thomas Verschuere:**
 - 📧 Email: [thomas.verschuere@skyline.be](mailto:thomas.verschuere@skyline.be)
