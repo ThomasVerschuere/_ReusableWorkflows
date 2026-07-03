@@ -41,7 +41,10 @@ jobs:
       image-name: 'myapp-tests'                 # Desired ACR image name
       dockerfile-path: 'Dockerfile'
       dotnet-version: '8.x'
-    secrets: inherit
+    secrets:
+      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
 ```
 
 ### 4. Configure repository secrets
