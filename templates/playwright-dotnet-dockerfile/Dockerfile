@@ -2,6 +2,9 @@
 # The runner handles the .NET build; Docker only packages the result.
 FROM mcr.microsoft.com/playwright/dotnet:v1.56.0-noble
 
+# TODO: Set this to your project folder name (e.g., MyApp.LiveServiceTesting)
+ARG PROJECT_NAME=YourProject.LiveServiceTesting
+
 WORKDIR /app
 
 # Test binaries published by the GitHub Actions workflow step
@@ -9,13 +12,11 @@ COPY publish/tests /app/tests/
 
 # dotnetPlaywright.sh is not part of the publish output, copy it explicitly
 # Strip Windows CRLF line endings so bash can execute it on Linux
-# TODO: Replace {ProjectName} with your actual project folder name
-COPY {ProjectName}/dotnetPlaywright.sh /app/tests/dotnetPlaywright.sh
+COPY ${PROJECT_NAME}/dotnetPlaywright.sh /app/tests/dotnetPlaywright.sh
 RUN sed -i 's/\r//' /app/tests/dotnetPlaywright.sh
 
 # Customer-specific config (one level above TESTFOLDERPATH, as expected by the script)
-# TODO: Replace {ProjectName} with your actual project folder name
-COPY {ProjectName}/config.json /app/config.json
+COPY ${PROJECT_NAME}/config.json /app/config.json
 
 # Create the output directory used by dotnet vstest --ResultsDirectory
 RUN mkdir -p /app/outputs

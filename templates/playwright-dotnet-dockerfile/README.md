@@ -12,13 +12,17 @@ cp templates/playwright-dotnet-dockerfile/Dockerfile ./Dockerfile
 
 ### 2. Customize the Dockerfile
 
-Replace `{ProjectName}` placeholders (appears 2 times) with your actual project folder name:
+Update the `ARG PROJECT_NAME` value at the top of the Dockerfile with your project folder name:
 
 ```dockerfile
-# Example: If your project is MyApp.LiveServiceTesting
-COPY MyApp.LiveServiceTesting/dotnetPlaywright.sh /app/tests/dotnetPlaywright.sh
-COPY MyApp.LiveServiceTesting/config.json /app/config.json
+# Change this line:
+ARG PROJECT_NAME=YourProject.LiveServiceTesting
+
+# To your actual project name, for example:
+ARG PROJECT_NAME=MyApp.LiveServiceTesting
 ```
+
+That's it! The `${PROJECT_NAME}` variable is automatically used in all COPY commands, so you only need to change it once.
 
 ### 3. Create your workflow file
 
