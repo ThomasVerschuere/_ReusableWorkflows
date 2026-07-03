@@ -57,7 +57,7 @@ Need different tagging strategies (test/qa/prod)? Contact **Thomas Verschuere** 
 
 After your request is approved, the following secrets will be provisioned to your repository:
 
-- `LIVESERVICETESTS_ACR_REGISTRY` - Azure Container Registry URL
+- `LIVESERVICETESTS_ACR_LOGIN_SERVER` - Azure Container Registry login server (e.g., `liveservicetests-xyz.azurecr.io`)
 - `LIVESERVICETESTS_ACR_USERNAME` - ACR username  
 - `LIVESERVICETESTS_ACR_PASSWORD` - ACR password
 
@@ -68,7 +68,7 @@ After your request is approved, the following secrets will be provisioned to you
 **Using your own ACR credentials?** Map your secrets explicitly:
 ```yaml
 secrets:
-  LIVESERVICETESTS_ACR_REGISTRY: ${{ secrets.YOUR_ACR_REGISTRY }}
+  LIVESERVICETESTS_ACR_LOGIN_SERVER: ${{ secrets.YOUR_ACR_LOGIN_SERVER }}
   LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.YOUR_ACR_USERNAME }}
   LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.YOUR_ACR_PASSWORD }}
 ```
