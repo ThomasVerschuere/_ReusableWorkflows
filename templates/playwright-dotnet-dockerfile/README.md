@@ -59,6 +59,14 @@ Request access to the LiveServiceTests ACR through the official request form, th
 
 **Note:** For SkylineCommunications repositories, `secrets: inherit` automatically passes all repository secrets to the reusable workflow.
 
+**Using your own ACR credentials?** Map your secrets explicitly:
+```yaml
+secrets:
+  LIVESERVICETESTS_ACR_REGISTRY: ${{ secrets.YOUR_ACR_REGISTRY }}
+  LIVESERVICETESTS_ACR_USERNAME: ${{ secrets.YOUR_ACR_USERNAME }}
+  LIVESERVICETESTS_ACR_PASSWORD: ${{ secrets.YOUR_ACR_PASSWORD }}
+```
+
 ## Project structure requirements
 
 Your project must have this structure:
