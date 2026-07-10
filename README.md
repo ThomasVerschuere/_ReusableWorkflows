@@ -15,6 +15,7 @@ across the fleet and can be evolved in a single place.
 | `Connector Master Legacy Workflow.yml`                    | Legacy connector pipeline.                                                    |
 | `Automation Master Workflow.yml`                          | CI/CD for Automation scripts (SDK and Legacy).                                |
 | `Automation Master SDK Workflow.yml` / `Legacy`           | SDK / Legacy automation pipelines.                                            |
+| `Playwright Docker ACR Workflow.yml`                      | Build and push Playwright .NET test projects to Azure Container Registry.     |
 | `NuGet Solution Master Workflow.yml`                      | *(deprecated)* Thin redirect to `Master Workflow.yml` for public NuGet.       |
 | `Internal NuGet Solution Master Workflow.yml`             | *(deprecated)* Thin redirect to `Master Workflow.yml` for internal NuGet.     |
 | `DataMiner App Packages Master Workflow.yml`              | *(deprecated)* Thin redirect to `Master Workflow.yml` for app packages.       |
@@ -110,6 +111,18 @@ subject restrictions.
 
 For implementation details and action-level usage, see
 [.github/actions/README.md](.github/actions/README.md).
+
+## Playwright Docker ACR Workflow
+
+`Playwright Docker ACR Workflow.yml` builds .NET `LiveServiceTesting` test projects, packages them into Docker images, and pushes them to Azure Container Registry.
+
+**For templates, usage instructions, and deployment guides,** see:  
+[`SkylineCommunications/platform-delivery-deployments`](https://github.com/SkylineCommunications/platform-delivery-deployments/tree/main/templates/playwright-docker-acr)
+
+**Quick reference:**
+- SkylineCommunications repos: uses OIDC (no secrets needed)
+- External repos: pass `LIVESERVICETESTS_ACR_*` secrets explicitly
+- See [templates README](https://github.com/SkylineCommunications/platform-delivery-deployments/blob/main/templates/playwright-docker-acr/README.md) for quick start
 
 ## Composite actions
 
