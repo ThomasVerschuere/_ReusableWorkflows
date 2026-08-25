@@ -1261,7 +1261,7 @@ jobs:
     name: Upload to Catalog
     runs-on: windows-latest
     if: github.ref_type == 'tag' && needs.discover_projects.outputs.has-dataminer-projects == 'true' && needs.package_windows.outputs.has-dataminer-packages == 'true'
-    needs: [ci, package_windows, check_oidc, discover_projects]
+    needs: [ci, package_windows, check_oidc, discover_projects, determine_version]
     steps:
       - name: Enable long paths
         run: git config --global core.longpaths true
@@ -1364,11 +1364,22 @@ jobs:
           Write-Output "Cleanup complete."
         shell: pwsh
 
+      # Publishing the whole solution would also publish unrelated projects (e.g. ASP.NET
+      # Core web projects), which fail under --no-build because their publish output was
+      # never built or downloaded here. Only the DataMiner package partition owns catalog
+      # artifacts, so restrict the publish to it. Runs after the global.json update so the
+      # Skyline SDK versions are already pinned for the publish that follows.
+      - name: Partition solution projects
+        id: partition
+        uses: SkylineCommunications/_ReusableWorkflows/.github/actions/partition-solution-projects@main
+        with:
+          solution-path: ${{ needs.discover_projects.outputs.solution-path }}
+
       - name: Publish To Catalog
         shell: pwsh
         env:
-          SOLUTION_PATH: ${{ needs.discover_projects.outputs.solution-path }}
-          VERSION: ${{ github.ref_name }}
+          SOLUTION_PATH: ${{ steps.partition.outputs.dataminer-package-solution-path }}
+          PACKAGE_VERSION: ${{ needs.determine_version.outputs.package-version }}
           VERSION_COMMENT: ${{ steps.findVersionComment.outputs.versionComment }}
           CONFIGURATION: ${{ inputs.configuration }}
           DEBUG_FLAG: ${{ inputs.debug }}
@@ -1376,7 +1387,8 @@ jobs:
           dotnet publish `
             "$env:SOLUTION_PATH" `
             --no-build `
-            -p:Version="$env:VERSION" `
+            -p:Version="$env:PACKAGE_VERSION" `
+            -p:PackageVersion="$env:PACKAGE_VERSION" `
             -p:VersionComment="$env:VERSION_COMMENT" `
             -p:CatalogPublishKeyName="DATAMINER_TOKEN" `
             --configuration "$env:CONFIGURATION" `
