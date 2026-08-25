@@ -20,6 +20,7 @@ across the fleet and can be evolved in a single place.
 | `Internal NuGet Solution Master Workflow.yml`             | *(deprecated)* Thin redirect to `Master Workflow.yml` for internal NuGet.     |
 | `DataMiner App Packages Master Workflow.yml`              | *(deprecated)* Thin redirect to `Master Workflow.yml` for app packages.       |
 | `Update Catalog Details Workflow.yml`                     | Update Catalog metadata on release.                                           |
+| `Auto-tag.yml`                                            | Create an on-demand prerelease tag from the `Create-Prerelease` PR label.     |
 
 ## Internal / maintenance workflows
 
@@ -29,7 +30,8 @@ the legacy wrappers.
 
 | Workflow                                                  | Purpose                                                                       |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `Test Downstream.yml`                                     | Repo-local: verifies downstream repos still build against changes here. Triggered by a `/test` PR comment. |
+| `Test Downstream.yml`                                     | Repo-local: runs the downstream integration-test battery with `/test` and prepares linked Copilot tasks in affected repos with `/prepare-downstream-fixes`. See [TESTING.md](TESTING.md). |
+| `Downstream Gate.yml`                                     | Repo-local: sets the `downstream-tests` commit status on every PR — *pending* when reusable workflows or composite actions are touched, *success (n/a)* otherwise. |
 | `Wrapper Migration Workflow.yml`                          | Opens a PR migrating callers off the deprecated redirecting wrappers. Called automatically by those wrappers; can also be dispatched standalone. |
 
 ## Using master workflows
@@ -82,6 +84,9 @@ jobs:
     with:
       connector-name: My Connector
       sonarcloud-project-name: my-org_my-connector
+      # Only needed when the repository contains more than one solution.
+      # SDK-style connectors only; accepts a .sln or .slnx file name.
+      # solution-filter-name: MyConnector.sln
     secrets: inherit
 ```
 

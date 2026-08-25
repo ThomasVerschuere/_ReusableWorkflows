@@ -5,11 +5,13 @@
 #     (DEBIAN/{control,conffiles,preinst,postinst,prerm,postrm} + systemd unit);
 #   * each project is staged in its OWN temp tree so multiple .debs never share or
 #     clobber a single packaging/Debian/content;
-#   * the project folder name is the Debian service name.
+#   * the systemd unit filename (minus the .service extension) is the Debian service name.
 #
 # Env (set by action.yml):
 #   PROJECTS      : comma-separated project paths relative to the repo root.
 #   VERSION       : canonical build version (Debian-normalised here: x.y.z-suffix -> x.y.z~suffix).
+#   INFORMATIONAL_VERSION : exact assembly informational version; defaults to VERSION.
+#   NUMERIC_VERSION       : optional strict 4-field AssemblyVersion/FileVersion.
 #   GENERATE_SBOM : 'true' => generate SBOM into usr/share/doc/skyline-communications-<name>.
 #   CONFIGURATION : dotnet publish configuration.
 #   OUTPUT_DIR    : directory receiving the built .deb files.
@@ -28,6 +30,7 @@ if [[ -z "${VERSION:-}" ]]; then
 fi
 configuration="${CONFIGURATION:-Release}"
 output_dir="${OUTPUT_DIR:-output}"
+informational_version="${INFORMATIONAL_VERSION:-$VERSION}"
 
 # --- Debian version normalisation -------------------------------------------------
 # Pre-release x.y.z-suffix -> x.y.z~suffix (dashes inside the suffix removed; '~' sorts
@@ -57,7 +60,6 @@ for project in "${projects[@]}"; do
   project=$(printf '%s' "$project" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
   [[ -z "$project" ]] && continue
 
-  service_name=$(basename "$project")
   skeleton="$project/packaging/Debian"
 
   # 0. Validate: every listed project must ship the Debian skeleton.
@@ -65,6 +67,21 @@ for project in "${projects[@]}"; do
     echo "::error::Project '$project' is listed in dxm-projects-ubuntu but has no $skeleton/content/DEBIAN/control." >&2
     exit 1
   fi
+
+  # Derive the Debian service name from the systemd unit shipped in the skeleton
+  # (packaging/Debian/content/lib/systemd/system/<service>.service) rather than the
+  # project folder name.
+  systemd_dir="$skeleton/content/lib/systemd/system"
+  mapfile -t service_files < <(find "$systemd_dir" -maxdepth 1 -type f -name '*.service' 2>/dev/null | sort)
+  if [[ "${#service_files[@]}" -eq 0 ]]; then
+    echo "::error::Project '$project' has no *.service unit in $systemd_dir; cannot determine the Debian service name." >&2
+    exit 1
+  fi
+  if [[ "${#service_files[@]}" -gt 1 ]]; then
+    echo "::error::Project '$project' has multiple *.service units in $systemd_dir; expected exactly one." >&2
+    exit 1
+  fi
+  service_name=$(basename "${service_files[0]}" .service)
 
   echo "── Packaging '$service_name' ──"
   staging=$(mktemp -d)
@@ -75,7 +92,24 @@ for project in "${projects[@]}"; do
 
   # 2. Publish self-contained for linux-x64 into opt/skyline-communications/<name>.
   publish_dir="$content/opt/skyline-communications/$service_name"
-  dotnet publish "$project" -c "$configuration" -r linux-x64 --self-contained true -o "$publish_dir"
+  publish_args=(
+    "$project"
+    -c "$configuration"
+    -r linux-x64
+    --self-contained true
+    -o "$publish_dir"
+    -p:Version="$VERSION"
+    -p:PackageVersion="$VERSION"
+    -p:InformationalVersion="$informational_version"
+    -p:IncludeSourceRevisionInInformationalVersion=false
+  )
+  if [[ -n "${NUMERIC_VERSION:-}" ]]; then
+    publish_args+=(
+      -p:AssemblyVersion="$NUMERIC_VERSION"
+      -p:FileVersion="$NUMERIC_VERSION"
+    )
+  fi
+  dotnet publish "${publish_args[@]}"
 
   # 3. SBOM (full releases only): usr/share/doc/skyline-communications-<name>,
   #    matching the Azure reusable pipelines.

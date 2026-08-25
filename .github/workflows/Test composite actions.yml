@@ -32,6 +32,39 @@ jobs:
       - name: Confirm pass
         run: echo "guard-trigger passed on event '${{ github.event_name }}'"
 
+  exempt-change-detector:
+    name: exempt-change-detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure repository-specific exemption
+        shell: bash
+        run: printf '%s\n' '# Local-only tooling' 'tools/LocalHarness/**' > .github/exempt-change-patterns.txt
+
+      - name: Invoke composite for repository-specific path
+        id: local-tool
+        uses: ./.github/actions/exempt-change-detector
+        with:
+          changed-files: tools/LocalHarness/Program.cs
+
+      - name: Invoke composite for mixed production change
+        id: mixed
+        uses: ./.github/actions/exempt-change-detector
+        with:
+          changed-files: |
+            tools/LocalHarness/Program.cs
+            src/Product/Program.cs
+
+      - name: Assert classifications
+        shell: bash
+        env:
+          LOCAL_TOOL_EXEMPT: ${{ steps.local-tool.outputs.exempt }}
+          MIXED_EXEMPT: ${{ steps.mixed.outputs.exempt }}
+        run: |
+          test "$LOCAL_TOOL_EXEMPT" = "true"
+          test "$MIXED_EXEMPT" = "false"
+
   is-skyline-managed-org:
     name: is-skyline-managed-org
     runs-on: ubuntu-latest
@@ -499,7 +532,7 @@ jobs:
       - name: Expected DataMiner SDK version
         id: expected
         shell: bash
-        run: echo "version=2.5.4" >> "$GITHUB_OUTPUT"
+        run: echo "version=2.5.5" >> "$GITHUB_OUTPUT"
 
       - name: No global.json (skip silently)
         uses: ./.github/actions/update-global-json-sdks
@@ -635,7 +668,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Run 18-case version corpus
+      - name: Run 24-case version corpus
         shell: pwsh
         run: ./.github/actions/determine-version/test.ps1
 
@@ -644,8 +677,16 @@ jobs:
         uses: ./.github/actions/determine-version
         with:
           ref-type: tag
-          ref-name: 1.4.0-dev-myfeature.42
+          ref-name: 1.4.0-123.42.a1b2c3d4
           run-number: 99
+
+      - name: Stable tag build smoke test
+        id: stable-tag-build
+        uses: ./.github/actions/determine-version
+        with:
+          ref-type: tag
+          ref-name: 1.4.0
+          run-number: 100
 
       - name: Branch build smoke test
         id: branch-build
@@ -658,14 +699,30 @@ jobs:
       - name: Assert composite outputs
         env:
           TAG_VERSION: ${{ steps.tag-build.outputs.version }}
+          TAG_INFORMATIONAL: ${{ steps.tag-build.outputs.informational-version }}
           TAG_NUMERIC: ${{ steps.tag-build.outputs.numeric-version }}
+          TAG_PRODUCT: ${{ steps.tag-build.outputs.product-version }}
+          TAG_PRODUCT_VALID: ${{ steps.tag-build.outputs.product-version-valid }}
+          STABLE_NUMERIC: ${{ steps.stable-tag-build.outputs.numeric-version }}
+          STABLE_INFORMATIONAL: ${{ steps.stable-tag-build.outputs.informational-version }}
+          STABLE_PRODUCT: ${{ steps.stable-tag-build.outputs.product-version }}
           BRANCH_VERSION: ${{ steps.branch-build.outputs.version }}
+          BRANCH_INFORMATIONAL: ${{ steps.branch-build.outputs.informational-version }}
           BRANCH_NUMERIC: ${{ steps.branch-build.outputs.numeric-version }}
+          BRANCH_PRODUCT: ${{ steps.branch-build.outputs.product-version }}
         run: |
-          test "$TAG_VERSION" = "1.4.0-dev-myfeature.42"
+          test "$TAG_VERSION" = "1.4.0-123.42.a1b2c3d4"
+          test "$TAG_INFORMATIONAL" = "1.4.0-123.42.a1b2c3d4"
           test "$TAG_NUMERIC" = "1.4.0.99"
+          test "$TAG_PRODUCT" = "1.4.0.99"
+          test "$TAG_PRODUCT_VALID" = "true"
+          test "$STABLE_NUMERIC" = "1.4.0.100"
+          test "$STABLE_INFORMATIONAL" = "1.4.0"
+          test "$STABLE_PRODUCT" = "1.4.0"
           test "$BRANCH_VERSION" = "0.0.70000"
+          test "$BRANCH_INFORMATIONAL" = "0.0.70000"
           test "$BRANCH_NUMERIC" = "0.0.4465.4465"
+          test "$BRANCH_PRODUCT" = "0.0.4465.4465"
 
   set-repo-type:
     name: set-repo-type
@@ -695,14 +752,26 @@ jobs:
             sed -i 's#</Project>#  <ItemGroup><Content Include="appsettings.json" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>\n</Project>#' "$svc/$svc.csproj"
             mkdir -p "$svc/packaging/Debian/content/DEBIAN"
             lower=$(echo "$svc" | tr '[:upper:]' '[:lower:]')
+            # Service name is derived from the systemd unit filename, NOT the project
+            # folder name, so give the unit a deliberately different name.
+            unit="dataminer-$lower"
+            mkdir -p "$svc/packaging/Debian/content/lib/systemd/system"
             {
-              echo "Package: $lower"
+              echo "[Unit]"
+              echo "Description=Test service $svc"
+              echo "[Service]"
+              echo "ExecStart=/opt/skyline-communications/$unit/$svc"
+              echo "[Install]"
+              echo "WantedBy=multi-user.target"
+            } > "$svc/packaging/Debian/content/lib/systemd/system/$unit.service"
+            {
+              echo "Package: $unit"
               echo "Version: <VERSION>"
               echo "Architecture: amd64"
               echo "Maintainer: Skyline Communications <devops@skyline.be>"
               echo "Description: Test service $svc"
             } > "$svc/packaging/Debian/content/DEBIAN/control"
-            echo "/etc/skyline-communications/$svc/appsettings.json" > "$svc/packaging/Debian/content/DEBIAN/conffiles"
+            echo "/etc/skyline-communications/$unit/appsettings.json" > "$svc/packaging/Debian/content/DEBIAN/conffiles"
           done
 
       - name: Invoke composite (pre-release version, no SBOM)
@@ -711,6 +780,8 @@ jobs:
         with:
           projects: ${{ runner.temp }}/deb-demo/SvcOne, ${{ runner.temp }}/deb-demo/SvcTwo
           version: 1.2.3-beta.1
+          informational-version: 1.2.3-beta.1
+          numeric-version: 1.2.3.77
           generate-sbom: 'false'
           output-directory: deb-output
 
@@ -720,13 +791,34 @@ jobs:
         run: |
           ls -l deb-output
           test "$PACKAGE_COUNT" = "2"
-          test -f "deb-output/SvcOne_1.2.3~beta.1.deb"
-          test -f "deb-output/SvcTwo_1.2.3~beta.1.deb"
-          version=$(dpkg-deb --field "deb-output/SvcOne_1.2.3~beta.1.deb" Version)
+          test -f "deb-output/dataminer-svcone_1.2.3~beta.1.deb"
+          test -f "deb-output/dataminer-svctwo_1.2.3~beta.1.deb"
+          version=$(dpkg-deb --field "deb-output/dataminer-svcone_1.2.3~beta.1.deb" Version)
           test "$version" = "1.2.3~beta.1"
-          dpkg-deb --contents "deb-output/SvcOne_1.2.3~beta.1.deb" | grep -q 'opt/skyline-communications/SvcOne/'
-          dpkg-deb --contents "deb-output/SvcOne_1.2.3~beta.1.deb" | grep -q 'etc/skyline-communications/SvcOne/appsettings.json'
-          dpkg-deb --contents "deb-output/SvcTwo_1.2.3~beta.1.deb" | grep -q 'opt/skyline-communications/SvcTwo/'
+          dpkg-deb --contents "deb-output/dataminer-svcone_1.2.3~beta.1.deb" | grep -q 'opt/skyline-communications/dataminer-svcone/'
+          dpkg-deb --contents "deb-output/dataminer-svcone_1.2.3~beta.1.deb" | grep -q 'etc/skyline-communications/dataminer-svcone/appsettings.json'
+          dpkg-deb --contents "deb-output/dataminer-svctwo_1.2.3~beta.1.deb" | grep -q 'opt/skyline-communications/dataminer-svctwo/'
+
+      - name: Assert managed assembly versions in Debian package
+        shell: pwsh
+        run: |
+          $extractPath = Join-Path $env:RUNNER_TEMP 'deb-extract'
+          & dpkg-deb --extract 'deb-output/dataminer-svcone_1.2.3~beta.1.deb' $extractPath
+          if ($LASTEXITCODE -ne 0) { throw "dpkg-deb extraction failed with exit code $LASTEXITCODE." }
+
+          $assemblyPath = Join-Path $extractPath 'opt/skyline-communications/dataminer-svcone/SvcOne.dll'
+          $assemblyName = [System.Reflection.AssemblyName]::GetAssemblyName($assemblyPath)
+          if ($assemblyName.Version.ToString() -ne '1.2.3.77') {
+            throw "Unexpected AssemblyVersion: $($assemblyName.Version)."
+          }
+
+          $fileInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($assemblyPath)
+          if ($fileInfo.FileVersion -ne '1.2.3.77') {
+            throw "Unexpected FileVersion: $($fileInfo.FileVersion)."
+          }
+          if ($fileInfo.ProductVersion -ne '1.2.3-beta.1') {
+            throw "Unexpected InformationalVersion: $($fileInfo.ProductVersion)."
+          }
 
   remove-wix-projects:
     name: remove-wix-projects
@@ -771,6 +863,162 @@ jobs:
             echo 'wixproj was not removed'
             exit 1
           fi
+
+  partition-solution-projects:
+    name: partition-solution-projects
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run offline test corpus
+        shell: pwsh
+        run: ./.github/actions/partition-solution-projects/test.ps1
+
+      - name: Scaffold a mixed solution
+        id: scaffold
+        shell: pwsh
+        run: |
+          $demoDirectory = Join-Path $env:RUNNER_TEMP 'partition-demo'
+          dotnet new sln --name Demo --output $demoDirectory
+          $solutionPath = Get-ChildItem -Path $demoDirectory -File | Where-Object { $_.Extension -in '.sln', '.slnx' } | Select-Object -First 1 -ExpandProperty FullName
+
+          $projects = @{
+            'Plain/Plain.csproj' = '<Project Sdk="Microsoft.NET.Sdk"></Project>'
+            'Installer/Installer.wixproj' = '<Project Sdk="WixToolset.Sdk/6.0.0"></Project>'
+            'Package/Package.csproj' = '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><GenerateDataMinerPackage>true</GenerateDataMinerPackage></PropertyGroup></Project>'
+          }
+
+          foreach ($project in $projects.GetEnumerator()) {
+            $projectPath = Join-Path $demoDirectory $project.Key
+            New-Item -Path (Split-Path $projectPath -Parent) -ItemType Directory -Force | Out-Null
+            Set-Content -Path $projectPath -Value $project.Value
+            dotnet sln $solutionPath add $projectPath
+          }
+
+          "solution-path=$solutionPath" >> $env:GITHUB_OUTPUT
+
+      - name: Invoke composite smoke test
+        id: partition
+        uses: ./.github/actions/partition-solution-projects
+        with:
+          solution-path: ${{ steps.scaffold.outputs.solution-path }}
+
+      - name: Assert partitions
+        shell: pwsh
+        env:
+          REMAINING_SOLUTION_PATH: ${{ steps.partition.outputs.remaining-solution-path }}
+          REMAINING_COUNT: ${{ steps.partition.outputs.remaining-count }}
+          WIX_SOLUTION_PATH: ${{ steps.partition.outputs.wix-solution-path }}
+          WIX_COUNT: ${{ steps.partition.outputs.wix-count }}
+          DATAMINER_PACKAGE_SOLUTION_PATH: ${{ steps.partition.outputs.dataminer-package-solution-path }}
+          DATAMINER_PACKAGE_COUNT: ${{ steps.partition.outputs.dataminer-package-count }}
+        run: |
+          if ($env:REMAINING_COUNT -ne '1' -or $env:WIX_COUNT -ne '1' -or $env:DATAMINER_PACKAGE_COUNT -ne '1') {
+            throw 'Unexpected partition counts.'
+          }
+
+          $remainingProjects = dotnet sln $env:REMAINING_SOLUTION_PATH list
+          $wixProjects = dotnet sln $env:WIX_SOLUTION_PATH list
+          $dataMinerPackageProjects = dotnet sln $env:DATAMINER_PACKAGE_SOLUTION_PATH list
+          if (($remainingProjects -join "`n") -notmatch 'Plain.csproj' -or
+              ($wixProjects -join "`n") -notmatch 'Installer.wixproj' -or
+              ($dataMinerPackageProjects -join "`n") -notmatch 'Package.csproj') {
+            throw 'Unexpected partition membership.'
+          }
+
+  sign-assemblies:
+    name: sign-assemblies
+    # Windows because the action drives Authenticode signing, and the offline
+    # corpus shadows the `sign` tool so no live Key Vault is needed.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run offline test corpus
+        shell: pwsh
+        run: ./.github/actions/sign-assemblies/test.ps1
+
+      - name: Scaffold build outputs with duplicates
+        id: scaffold
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'sign-demo'
+
+          # Shared.dll is byte-identical in three bin folders, Other.dll is
+          # unique, and Ignored.dll sits outside a bin folder.
+          $files = @{
+            'ProjectA/bin/Release/Shared.dll'  = 'shared-content'
+            'ProjectB/bin/Release/Shared.dll'  = 'shared-content'
+            'ProjectC/bin/Debug/Shared.dll'    = 'shared-content'
+            'ProjectA/bin/Release/Other.dll'   = 'other-content'
+            'ProjectA/obj/Release/Ignored.dll' = 'ignored-content'
+          }
+
+          foreach ($file in $files.GetEnumerator()) {
+            $path = Join-Path $root $file.Key
+            New-Item -Path (Split-Path $path -Parent) -ItemType Directory -Force | Out-Null
+            Set-Content -Path $path -Value $file.Value -NoNewline
+          }
+
+          "root=$root" >> $env:GITHUB_OUTPUT
+
+      - name: Invoke composite smoke test
+        id: sign
+        uses: ./.github/actions/sign-assemblies
+        with:
+          root: ${{ steps.scaffold.outputs.root }}
+          dry-run: 'true'
+
+      - name: Assert deduplicated plan
+        shell: pwsh
+        env:
+          ROOT: ${{ steps.scaffold.outputs.root }}
+          FILES_TOTAL: ${{ steps.sign.outputs.files-total }}
+          FILES_SIGNED: ${{ steps.sign.outputs.files-signed }}
+          FILES_COPIED: ${{ steps.sign.outputs.files-copied }}
+          BATCHES: ${{ steps.sign.outputs.batches }}
+        run: |
+          if ($env:FILES_TOTAL -ne '4') {
+            throw "Expected 4 build outputs but got '$($env:FILES_TOTAL)'."
+          }
+
+          # Three identical Shared.dll plus one unique Other.dll collapse to two
+          # signing requests; the file outside a bin folder is not counted.
+          if ($env:FILES_SIGNED -ne '2' -or $env:FILES_COPIED -ne '2') {
+            throw "Expected 2 signed and 2 copied but got '$($env:FILES_SIGNED)' and '$($env:FILES_COPIED)'."
+          }
+
+          if (([int]$env:FILES_SIGNED + [int]$env:FILES_COPIED) -ne [int]$env:FILES_TOTAL) {
+            throw 'Signed plus copied must account for every build output.'
+          }
+
+          if ($env:BATCHES -ne '1') {
+            throw "Expected a single batch but got '$($env:BATCHES)'."
+          }
+
+          $shared = Get-Content -LiteralPath (Join-Path $env:ROOT 'ProjectA/bin/Release/Shared.dll') -Raw
+          if ($shared -ne 'shared-content') {
+            throw 'A dry run must not modify build outputs.'
+          }
+
+      - name: Assert idempotency
+        id: sign-again
+        uses: ./.github/actions/sign-assemblies
+        with:
+          root: ${{ steps.scaffold.outputs.root }}
+          dry-run: 'true'
+
+      - name: Assert unchanged plan on re-run
+        shell: pwsh
+        env:
+          FIRST_TOTAL: ${{ steps.sign.outputs.files-total }}
+          FIRST_SIGNED: ${{ steps.sign.outputs.files-signed }}
+          SECOND_TOTAL: ${{ steps.sign-again.outputs.files-total }}
+          SECOND_SIGNED: ${{ steps.sign-again.outputs.files-signed }}
+        run: |
+          if ($env:FIRST_TOTAL -ne $env:SECOND_TOTAL -or $env:FIRST_SIGNED -ne $env:SECOND_SIGNED) {
+            throw 'Re-running the action must produce the same plan.'
+          }
 
   quality-gate-summary:
     name: quality-gate-summary

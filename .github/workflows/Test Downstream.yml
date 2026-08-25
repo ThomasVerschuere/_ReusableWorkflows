@@ -4,14 +4,38 @@ on:
   issue_comment:
     types: [created]
 
+# Batteries are queued so the shared test-downstream tag remains stable. Manual
+# test refs are isolated per PR and can replace an older preparation run.
 concurrency:
-  group: test-downstream
-  cancel-in-progress: true
+  group: >-
+    ${{ startsWith(github.event.comment.body, '/prepare-downstream-fixes')
+        && format('downstream-fixes-pr-{0}', github.event.issue.number)
+        || ((github.event.comment.body == '/prepare-test'
+            || startsWith(github.event.comment.body, '/prepare-test '))
+            && format('manual-test-ref-pr-{0}', github.event.issue.number)
+            || 'test-downstream') }}
+  cancel-in-progress: >-
+    ${{ github.event.comment.body == '/prepare-test'
+        || startsWith(github.event.comment.body, '/prepare-test ') }}
 
+# Commands (PR comments, write access required):
+#   /test [head-sha] - run affected repos; fork PRs require the reviewed SHA
+#   /test-all [head-sha] - run every mapped repo; fork PRs require the SHA
+#   /retest    - re-run only the repos that failed in the previous battery for
+#                this PR (successes carry over; requires an unchanged head SHA)
+#   /prepare-test [head-sha] - create/update a self-consistent test-pr-<number>
+#                   tag; fork PRs must supply the full reviewed head SHA
+#   /prepare-downstream-fixes - create an issue in each affected downstream
+#                   repo and assign Copilot; acceptance criteria are required
+#                   on the following lines
+#
 # To add a new target repo:
 #   1. Add an entry to DOWNSTREAM_MAP below with the repo and its dependent workflow files
 #      (include transitive dependencies — e.g. if Connector Master calls Connector Master Legacy, list both)
-#   2. Create .github/workflows/test-downstream.yml in that repo (see receiver template)
+#   2. Create the receiver workflow in that repo: .github/workflows/pr-regression.yml,
+#      triggered by `repository_dispatch: types: [test-reusable-workflow]`, calling
+#      SkylineCommunications/BOOST-DailyRegression/.github/workflows/regression.yml@main
+#      with the caller workflow that is pinned to @test-downstream (e.g. pr-ci-cd.yml)
 #   3. Merge the receiver workflow to the target repo's default branch
 
 env:
@@ -49,32 +73,359 @@ env:
         "repo": "SkylineCommunications/BOOST-DailyRegression-InternalNuGet",
         "workflows": [
           "Internal NuGet Solution Master Workflow.yml",
-          "Master Workflow.yml"
+          "Master Workflow.yml",
+          "Wrapper Migration Workflow.yml"
         ]
       },
       {
         "repo": "SkylineCommunications/BOOST-DailyRegression-Skyline.DataMiner.Sdk",
         "workflows": [
           "DataMiner App Packages Master Workflow.yml",
+          "Master Workflow.yml",
+          "Update Catalog Details Workflow.yml"
+        ]
+      },
+      {
+        "repo": "SkylineCommunications/BOOST-DailyRegression-SharedLibrary",
+        "workflows": [
           "Master Workflow.yml"
+        ]
+      },
+      {
+        "repo": "SkylineCommunications/BOOST-DailyRegression-MasterWorkflow",
+        "workflows": [
+          "Master Workflow.yml"
+        ]
+      },
+      {
+        "repo": "SkylineCommunications/BOOST-DailyRegression-NegativePaths",
+        "workflows": [
+          "Master Workflow.yml",
+          "Connector Master Workflow.yml",
+          "Connector Master SDK Workflow.yml"
         ]
       }
     ]
 
 jobs:
+  prepare-manual-test-ref:
+    name: Prepare Manual Test Ref
+    if: >-
+      github.event.issue.pull_request
+      && (github.event.comment.body == '/prepare-test'
+          || startsWith(github.event.comment.body, '/prepare-test '))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Check commenter permissions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
+          permission=$(gh api \
+            "repos/${{ github.repository }}/collaborators/$COMMENTER/permission" \
+            --jq '.permission')
+
+          if [[ "$permission" != "admin" && "$permission" != "write" ]]; then
+            echo "User $COMMENTER has '$permission' permission. Write or admin required."
+            exit 1
+          fi
+
+      - name: React with eyes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content='eyes' \
+            --silent
+
+      - name: Get PR details
+        id: pr-details
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          pr_json=$(gh pr view "$PR_NUMBER" \
+            --repo ${{ github.repository }} \
+            --json headRefOid,headRefName,isCrossRepository)
+
+          echo "head_sha=$(jq -r '.headRefOid' <<<"$pr_json")" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(jq -r '.headRefName' <<<"$pr_json")" >> "$GITHUB_OUTPUT"
+          echo "is_cross_repository=$(jq -r '.isCrossRepository' <<<"$pr_json")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.DOWNSTREAM_PAT }}
+
+      - name: Verify command and immutable PR head
+        id: verified
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          IS_CROSS_REPOSITORY: ${{ steps.pr-details.outputs.is_cross_repository }}
+          API_HEAD_SHA: ${{ steps.pr-details.outputs.head_sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/pull/$PR_NUMBER/head"
+          fetched_sha=$(git rev-parse "refs/remotes/pull/$PR_NUMBER/head^{commit}")
+          python3 .github/scripts/validate_pr_command.py \
+            --comment-body "$COMMENT_BODY" \
+            --allowed-command /prepare-test \
+            --is-cross-repository "$IS_CROSS_REPOSITORY" \
+            --api-head-sha "$API_HEAD_SHA" \
+            --fetched-head-sha "$fetched_sha" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Build and publish self-consistent manual test tag
+        id: build-tag
+        env:
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          test_ref="test-pr-$PR_NUMBER"
+          export TEST_REF="$test_ref"
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "prepare-test-pr-$PR_NUMBER" "$HEAD_SHA"
+
+          python3 -I - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          pattern = re.compile(
+              r'(SkylineCommunications/_ReusableWorkflows/\.github/actions/[A-Za-z0-9._-]+)@[A-Za-z0-9._/-]+'
+          )
+          replacement = rf'\1@{os.environ["TEST_REF"]}'
+          targets = list(pathlib.Path('.github/workflows').glob('*.yml')) \
+                  + list(pathlib.Path('.github/actions').glob('*/action.yml'))
+          for path in targets:
+              contents = path.read_text(encoding='utf-8')
+              rewritten = pattern.sub(replacement, contents)
+              if rewritten != contents:
+                  path.write_text(rewritten, encoding='utf-8')
+                  print(f'rewrote {path}')
+          PY
+
+          if ! git diff --quiet; then
+            git add .github/workflows .github/actions
+            git commit -m "prepare-test: pin composite actions to @$test_ref"
+          fi
+
+          git tag -f "$test_ref"
+          git push -f origin "refs/tags/$test_ref"
+
+          echo "test_ref=$test_ref" >> "$GITHUB_OUTPUT"
+          echo "tag_sha=$(git rev-parse "$test_ref^{commit}")" >> "$GITHUB_OUTPUT"
+
+      - name: Comment manual test ref
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
+          HEAD_REF: ${{ steps.pr-details.outputs.head_ref }}
+          TEST_REF: ${{ steps.build-tag.outputs.test_ref }}
+          TAG_SHA: ${{ steps.build-tag.outputs.tag_sha }}
+        run: |
+          set -euo pipefail
+          cat <<COMMENT_BODY > /tmp/manual-test-ref.md
+          ✅ **Manual test ref ready:** \`$TEST_REF\`
+
+          Built from PR #$PR_NUMBER branch \`$HEAD_REF\` at \`$HEAD_SHA\`. Internal composite-action references point to \`@$TEST_REF\` in the published commit \`$TAG_SHA\`.
+
+          Use \`SkylineCommunications/_ReusableWorkflows/.github/workflows/<workflow>.yml@$TEST_REF\` from a manual test caller. Re-run \`/prepare-test\` after the PR changes to update the tag.
+          COMMENT_BODY
+
+          jq -Rs '{body: .}' < /tmp/manual-test-ref.md \
+            | gh api --method POST \
+              "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+              --input - --silent
+
+  prepare-downstream-fixes:
+    name: Prepare Downstream Fixes
+    if: >-
+      github.event.issue.pull_request
+      && startsWith(github.event.comment.body, '/prepare-downstream-fixes')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Check commenter permissions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
+          permission=$(gh api \
+            "repos/${{ github.repository }}/collaborators/$COMMENTER/permission" \
+            --jq '.permission')
+
+          if [[ "$permission" != "admin" && "$permission" != "write" ]]; then
+            echo "::error::User $COMMENTER has '$permission' permission. Write or admin required."
+            exit 1
+          fi
+
+      - name: React with eyes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content='eyes' \
+            --silent
+
+      - name: Get PR details
+        id: pr-details
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --json baseRefOid,headRefOid,url \
+            > /tmp/source-pr.json
+
+          echo "base_sha=$(jq -r '.baseRefOid' /tmp/source-pr.json)" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(jq -r '.headRefOid' /tmp/source-pr.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout orchestrator
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify immutable PR head
+        id: verified
+        env:
+          API_HEAD_SHA: ${{ steps.pr-details.outputs.head_sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/pull/$PR_NUMBER/head"
+          fetched_sha=$(git rev-parse "refs/remotes/pull/$PR_NUMBER/head^{commit}")
+          if [[ ! "$API_HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::API head SHA is not a full 40-character SHA"
+            exit 1
+          fi
+          if [[ "${API_HEAD_SHA,,}" != "${fetched_sha,,}" ]]; then
+            echo "::error::PR head moved while authorizing downstream fix preparation"
+            exit 1
+          fi
+          echo "head_sha=${API_HEAD_SHA,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Map changed files to affected workflows
+        env:
+          BASE_SHA: ${{ steps.pr-details.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::API base SHA is not a full 40-character SHA"
+            exit 1
+          fi
+          git cat-file -e "$BASE_SHA^{commit}"
+          changed_paths=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+
+          changed_workflows=$(grep '^\.github/workflows/' <<<"$changed_paths" | xargs -r -I{} basename "{}" || true)
+          changed_actions=$(grep -oP '^\.github/actions/\K[A-Za-z0-9._-]+(?=/)' <<<"$changed_paths" | sort -u || true)
+          consumer_workflows=""
+          if [[ -n "$changed_actions" ]]; then
+            while IFS= read -r action; do
+              [[ -z "$action" ]] && continue
+              consumers=$(git grep -lE "actions/${action}([@\"'[:space:]]|\$)" "$HEAD_SHA" -- '.github/workflows/*.yml' \
+                | cut -d: -f2- \
+                | xargs -r -I{} basename "{}" || true)
+              consumer_workflows+="$consumers"$'\n'
+            done <<<"$changed_actions"
+          fi
+
+          printf '%s\n%s\n' "$changed_workflows" "$consumer_workflows" \
+            | sed '/^$/d' \
+            | sort -u \
+            > /tmp/changed-workflows.txt
+
+      - name: Prepare downstream tasks
+        id: prepare
+        continue-on-error: true
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          DOWNSTREAM_ISSUES_TOKEN: ${{ secrets['DOWNSTREAM_ISSUES_TOKEN'] }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$COMMENT_BODY" > /tmp/command.txt
+          printf '%s' "$DOWNSTREAM_MAP" > /tmp/downstream-map.json
+
+          python3 .github/scripts/prepare_downstream_fixes.py \
+            --source-repo "${{ github.repository }}" \
+            --pr-number "${{ github.event.issue.number }}" \
+            --head-sha "${{ steps.verified.outputs.head_sha }}" \
+            --source-pr-url "$(jq -r '.url' /tmp/source-pr.json)" \
+            --command-url "${{ github.event.comment.html_url }}" \
+            --workflow-run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --comment-file /tmp/command.txt \
+            --changed-workflows-file /tmp/changed-workflows.txt \
+            --downstream-map-file /tmp/downstream-map.json \
+            --result-file /tmp/downstream-fixes.json \
+            --summary-file /tmp/downstream-fixes.md
+
+      - name: Post audit summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [[ ! -f /tmp/downstream-fixes.md ]]; then
+            cat <<'EOF' > /tmp/downstream-fixes.md
+          <!-- downstream-fixes-summary -->
+          **Downstream fix preparation failed before downstream tasks could be created.**
+
+          Open the linked workflow run from this comment's timeline for the failing step.
+          EOF
+          fi
+
+          jq -Rs '{body: .}' < /tmp/downstream-fixes.md \
+            | gh api --method POST \
+              "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+              --input - --silent
+
+      - name: Fail on incomplete preparation
+        if: steps.prepare.outcome == 'failure'
+        run: |
+          echo "::error::One or more downstream tasks could not be prepared. See the audit summary on the source PR."
+          exit 1
+
   test-downstream:
     name: Test Downstream Repos
     if: >-
       github.event.issue.pull_request
       && (
         github.event.comment.body == '/test'
+        || startsWith(github.event.comment.body, '/test ')
         || github.event.comment.body == '/test-all'
+        || startsWith(github.event.comment.body, '/test-all ')
+        || github.event.comment.body == '/retest'
       )
     runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
       pull-requests: write
+      statuses: write
 
     steps:
       - name: Check commenter permissions
@@ -102,6 +453,18 @@ jobs:
             -f content='eyes' \
             --silent
 
+      # Collapse the processed command comment (kept for audit, hidden from the
+      # timeline) so repeated /test cycles don't clutter the PR conversation.
+      - name: Hide command comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_NODE_ID: ${{ github.event.comment.node_id }}
+        run: |
+          gh api graphql \
+            -f query='mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: RESOLVED}) { minimizedComment { isMinimized } } }' \
+            -f id="$COMMENT_NODE_ID" \
+            || echo "::warning::Could not minimize the command comment (cosmetic only)."
+
       - name: Get PR details
         id: pr-details
         env:
@@ -109,43 +472,150 @@ jobs:
         run: |
           pr_json=$(gh pr view ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
-            --json headRefOid,headRefName)
+            --json baseRefOid,headRefOid,headRefName,isCrossRepository)
 
+          base_sha=$(echo "$pr_json" | jq -r '.baseRefOid')
           head_sha=$(echo "$pr_json" | jq -r '.headRefOid')
           head_ref=$(echo "$pr_json" | jq -r '.headRefName')
 
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
           echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+          echo "is_cross_repository=$(echo "$pr_json" | jq -r '.isCrossRepository')" >> "$GITHUB_OUTPUT"
           echo "PR #${{ github.event.issue.number }}: branch=$head_ref sha=$head_sha"
 
-      - name: Get changed workflow files
-        id: changed-files
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # Use a PAT with `workflow` scope so we can push changes
+          # under .github/workflows/. GITHUB_TOKEN cannot do this even
+          # with `contents: write` — GitHub explicitly blocks it.
+          token: ${{ secrets.DOWNSTREAM_PAT }}
+
+      - name: Verify command and immutable PR head
+        id: verified
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          IS_CROSS_REPOSITORY: ${{ steps.pr-details.outputs.is_cross_repository }}
+          API_HEAD_SHA: ${{ steps.pr-details.outputs.head_sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          case "$COMMENT_BODY" in
+            /test|/test\ *) allowed_command=/test ;;
+            /test-all|/test-all\ *) allowed_command=/test-all ;;
+            /retest) allowed_command=/retest ;;
+            *) echo "::error::Unsupported test command"; exit 1 ;;
+          esac
+
+          git fetch --no-tags origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/pull/$PR_NUMBER/head"
+          fetched_sha=$(git rev-parse "refs/remotes/pull/$PR_NUMBER/head^{commit}")
+          python3 .github/scripts/validate_pr_command.py \
+            --comment-body "$COMMENT_BODY" \
+            --allowed-command "$allowed_command" \
+            --is-cross-repository "$IS_CROSS_REPOSITORY" \
+            --api-head-sha "$API_HEAD_SHA" \
+            --fetched-head-sha "$fetched_sha" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Set commit status to pending
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
         run: |
-          changed=$(gh pr diff ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --name-only | grep '^\.github/workflows/' | xargs -I{} basename "{}" || true)
+          gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
+            -f state='pending' \
+            -f context='downstream-tests' \
+            -f description='Downstream test battery is running...' \
+            -f target_url='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+            --silent
 
-          echo "Changed workflow files:"
-          echo "$changed"
+      - name: Load previous battery state
+        id: prior
+        if: steps.verified.outputs.command == '/retest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          MARKER='<!-- sticky:test-downstream -->'
+          body=$(gh api --paginate \
+            "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+            --jq ".[] | select(.body | contains(\"$MARKER\")) | .body" | head -c 65536)
+
+          state=$(grep -oP '(?<=<!-- state:test-downstream ).*(?= -->)' <<<"$body" | tail -n1 || true)
+          if [[ -z "$state" ]]; then
+            echo "::error::No previous battery result found on this PR — run /test or /test-all first."
+            exit 1
+          fi
+
+          prior_head=$(jq -r '.head_sha' <<<"$state")
+          if [[ "$prior_head" != "$HEAD_SHA" ]]; then
+            echo "::error::The PR head moved since the previous battery ($prior_head → $HEAD_SHA); earlier results no longer apply. Run /test again."
+            exit 1
+          fi
+
+          echo "Previous battery state loaded:"
+          jq . <<<"$state"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      - name: Map changed files to affected workflows
+        id: changed-files
+        env:
+          BASE_SHA: ${{ steps.pr-details.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::API base SHA is not a full 40-character SHA"
+            exit 1
+          fi
+          git cat-file -e "$BASE_SHA^{commit}"
+          changed_paths=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+
+          changed_workflows=$(grep '^\.github/workflows/' <<<"$changed_paths" | xargs -r -I{} basename "{}" || true)
+
+          # A changed composite action affects every workflow referencing it, in
+          # either the cross-repo (actions/<name>@ref) or relative (./.github/actions/<name>) form.
+          changed_actions=$(grep -oP '^\.github/actions/\K[A-Za-z0-9._-]+(?=/)' <<<"$changed_paths" | sort -u || true)
+          consumer_workflows=""
+          if [[ -n "$changed_actions" ]]; then
+            while IFS= read -r action; do
+              [[ -z "$action" ]] && continue
+              consumers=$(git grep -lE "actions/${action}([@\"'[:space:]]|\$)" "$HEAD_SHA" -- '.github/workflows/*.yml' | cut -d: -f2- | xargs -r -I{} basename "{}" || true)
+              consumer_workflows+="$consumers"$'\n'
+            done <<<"$changed_actions"
+          fi
+
+          affected=$(printf '%s\n%s\n' "$changed_workflows" "$consumer_workflows" | sed '/^$/d' | sort -u)
+
+          echo "Affected workflow files:"
+          echo "$affected"
           echo "changed_workflows<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$changed" >> "$GITHUB_OUTPUT"
+          echo "$affected" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Determine target repos
         id: targets
         env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMAND: ${{ steps.verified.outputs.command }}
+          CHANGED_WORKFLOWS: ${{ steps.changed-files.outputs.changed_workflows }}
+          PRIOR_STATE: ${{ steps.prior.outputs.state }}
         run: |
-          command="$COMMENT_BODY"
-          changed_workflows="${{ steps.changed-files.outputs.changed_workflows }}"
+          command="$COMMAND"
+          carried='{}'
 
-          if [[ "$command" == "/test-all" ]]; then
-            target_repos=$(echo '${{ env.DOWNSTREAM_MAP }}' | jq -r '.[].repo')
+          if [[ "$command" == "/retest" ]]; then
+            # Only re-dispatch what failed; successful results carry over.
+            target_repos=$(jq -r '.results | to_entries[] | select(.value != "success") | .key' <<<"$PRIOR_STATE")
+            carried=$(jq -c '.results | with_entries(select(.value == "success"))' <<<"$PRIOR_STATE")
+          elif [[ "$command" == "/test-all" ]]; then
+            target_repos=$(echo "$DOWNSTREAM_MAP" | jq -r '.[].repo')
           else
             # Filter DOWNSTREAM_MAP to repos whose workflows were changed
-            target_repos=$(echo '${{ env.DOWNSTREAM_MAP }}' | jq -r --arg changed "$changed_workflows" '
+            target_repos=$(echo "$DOWNSTREAM_MAP" | jq -r --arg changed "$CHANGED_WORKFLOWS" '
               # Split changed files into an array
               ($changed | split("\n") | map(select(. != ""))) as $changed_files |
               # Keep only entries where at least one workflow matches a changed file
@@ -155,7 +625,7 @@ jobs:
           fi
 
           if [[ -z "$target_repos" ]]; then
-            echo "No target repos affected by the changed workflow files."
+            echo "No target repos to dispatch."
             echo "has_targets=false" >> "$GITHUB_OUTPUT"
           else
             echo "Target repos to dispatch:"
@@ -163,6 +633,7 @@ jobs:
             echo "has_targets=true" >> "$GITHUB_OUTPUT"
           fi
 
+          echo "carried=$carried" >> "$GITHUB_OUTPUT"
           echo "repos<<EOF" >> "$GITHUB_OUTPUT"
           echo "$target_repos" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -171,43 +642,51 @@ jobs:
         if: steps.targets.outputs.has_targets == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
+          COMMAND: ${{ steps.verified.outputs.command }}
         run: |
           set -euo pipefail
           MARKER='<!-- sticky:test-downstream -->'
-          {
-            echo "$MARKER"
-            echo "ℹ️ **No downstream tests triggered** — the changed files in this PR don't affect any mapped reusable workflows."
-          } > /tmp/pr-comment.md
 
-          existing_id=$(gh api --paginate \
-            "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
-            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -n1)
-
-          if [[ -n "$existing_id" ]]; then
-            jq -Rs '{body: .}' < /tmp/pr-comment.md \
-              | gh api --method PATCH \
-                "repos/${{ github.repository }}/issues/comments/$existing_id" \
-                --input - --silent
+          if [[ "$COMMAND" == "/retest" ]]; then
+            message="✅ **Nothing to retry** — every repo in the previous battery already succeeded."
+            description='All downstream tests passed (previous battery)'
           else
-            jq -Rs '{body: .}' < /tmp/pr-comment.md \
-              | gh api --method POST \
-                "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
-                --input - --silent
+            message="ℹ️ **No downstream tests triggered** — the changed files in this PR don't affect any mapped reusable workflows or composite actions."
+            description='Not applicable — no mapped downstream consumers affected'
           fi
 
-      - uses: actions/checkout@v7
-        if: steps.targets.outputs.has_targets == 'true'
-        with:
-          fetch-depth: 0
-          # Use a PAT with `workflow` scope so we can push changes
-          # under .github/workflows/. GITHUB_TOKEN cannot do this even
-          # with `contents: write` — GitHub explicitly blocks it.
-          token: ${{ secrets.DOWNSTREAM_PAT }}
+          {
+            echo "$MARKER"
+            echo "$message"
+          } > /tmp/pr-comment.md
+
+          # Delete older sticky comments and repost so the result is always the
+          # newest comment in the thread (no scrolling up to find it).
+          gh api --paginate \
+            "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" \
+            | while read -r cid; do
+                gh api --method DELETE "repos/${{ github.repository }}/issues/comments/$cid" --silent
+              done
+
+          jq -Rs '{body: .}' < /tmp/pr-comment.md \
+            | gh api --method POST \
+              "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+              --input - --silent
+
+          gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
+            -f state='success' \
+            -f context='downstream-tests' \
+            -f description="$description" \
+            -f target_url='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+            --silent
 
       - name: Build self-consistent test commit and force-push tag
         if: steps.targets.outputs.has_targets == 'true'
+        id: build-tag
         env:
-          HEAD_SHA: ${{ steps.pr-details.outputs.head_sha }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
         run: |
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -222,7 +701,7 @@ jobs:
           # Without this, the master workflow files from the PR would
           # still load composite actions from @main / @{branch}, hiding any
           # regression introduced by the PR.
-          python - <<'PY'
+          python3 -I - <<'PY'
           import re, pathlib
           pat = re.compile(
               r'(SkylineCommunications/_ReusableWorkflows/\.github/actions/[A-Za-z0-9._-]+)@[A-Za-z0-9._/-]+'
@@ -245,15 +724,21 @@ jobs:
           git tag -f test-downstream
           git push -f origin test-downstream
 
+          echo "tag_sha=$(git rev-parse 'test-downstream^{commit}')" >> "$GITHUB_OUTPUT"
+
       - name: Dispatch to target repos
         if: steps.targets.outputs.has_targets == 'true'
         id: dispatch
         env:
           GH_TOKEN: ${{ secrets.DOWNSTREAM_PAT }}
           TARGET_REPOS: ${{ steps.targets.outputs.repos }}
+          TAG_SHA: ${{ steps.build-tag.outputs.tag_sha }}
+          CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
         run: |
           timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "dispatch_time=$timestamp" >> "$GITHUB_OUTPUT"
+          echo "correlation_id=$CORRELATION_ID" >> "$GITHUB_OUTPUT"
 
           dispatched_repos=""
           for repo in $TARGET_REPOS; do
@@ -263,7 +748,9 @@ jobs:
               -f event_type='test-reusable-workflow' \
               -f 'client_payload[pr_number]=${{ github.event.issue.number }}' \
               -f 'client_payload[source_repo]=${{ github.repository }}' \
-              -f 'client_payload[head_sha]=${{ steps.pr-details.outputs.head_sha }}' \
+              -f "client_payload[head_sha]=$HEAD_SHA" \
+              -f "client_payload[tag_sha]=$TAG_SHA" \
+              -f "client_payload[correlation_id]=$CORRELATION_ID" \
               --silent
 
             dispatched_repos="${dispatched_repos}\n- [${repo}](https://github.com/${repo}/actions)"
@@ -281,7 +768,7 @@ jobs:
           {
             echo "$MARKER"
             cat <<'COMMENT_BODY'
-          ⏳ **Downstream tests triggered** from PR #${{ github.event.issue.number }} (`${{ steps.pr-details.outputs.head_sha }}`)
+          ⏳ **Downstream tests triggered** from PR #${{ github.event.issue.number }} (`${{ steps.verified.outputs.head_sha }}`)
 
           Triggered repos:
           ${{ steps.dispatch.outputs.dispatched_repos }}
@@ -290,21 +777,19 @@ jobs:
           COMMENT_BODY
           } > /tmp/pr-comment.md
 
-          existing_id=$(gh api --paginate \
+          # Delete older sticky comments and repost so progress is always the
+          # newest comment in the thread.
+          gh api --paginate \
             "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
-            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -n1)
+            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" \
+            | while read -r cid; do
+                gh api --method DELETE "repos/${{ github.repository }}/issues/comments/$cid" --silent
+              done
 
-          if [[ -n "$existing_id" ]]; then
-            jq -Rs '{body: .}' < /tmp/pr-comment.md \
-              | gh api --method PATCH \
-                "repos/${{ github.repository }}/issues/comments/$existing_id" \
-                --input - --silent
-          else
-            jq -Rs '{body: .}' < /tmp/pr-comment.md \
-              | gh api --method POST \
-                "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
-                --input - --silent
-          fi
+          jq -Rs '{body: .}' < /tmp/pr-comment.md \
+            | gh api --method POST \
+              "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+              --input - --silent
 
       - name: Poll for results
         if: steps.targets.outputs.has_targets == 'true'
@@ -312,10 +797,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.DOWNSTREAM_PAT }}
           TARGET_REPOS: ${{ steps.targets.outputs.repos }}
+          CORRELATION_ID: ${{ steps.dispatch.outputs.correlation_id }}
+          CARRIED: ${{ steps.targets.outputs.carried }}
         run: |
           dispatch_time="${{ steps.dispatch.outputs.dispatch_time }}"
-          max_wait=1800  # 30 minutes
-          poll_interval=300 # 5 minutes
+          max_wait=5400  # 90 minutes — downstream BRANCH + RELEASE flows can exceed 30
+          discover_interval=60
+          poll_interval=120
           initial_wait=15
           elapsed=0
 
@@ -325,18 +813,27 @@ jobs:
 
           declare -A run_ids
 
-          # Phase 1: Find all run IDs
+          # Phase 1: Find all run IDs. Prefer receiver runs whose title carries our
+          # correlation id (set via run-name in the receivers); fall back to the
+          # newest repository_dispatch run since dispatch for receivers that
+          # don't embed it yet.
           echo "Looking for triggered workflow runs..."
-          for attempt in $(seq 1 10); do
+          for attempt in $(seq 1 20); do
             all_found=true
             for repo in $TARGET_REPOS; do
-              if [[ -n "${run_ids[$repo]}" ]]; then
+              if [[ -n "${run_ids[$repo]:-}" ]]; then
                 continue
               fi
 
-              run_id=$(gh api \
-                "repos/$repo/actions/runs?event=repository_dispatch&created=>=$dispatch_time&per_page=5" \
-                --jq '.workflow_runs[0].id // empty')
+              runs_json=$(gh api \
+                "repos/$repo/actions/runs?event=repository_dispatch&created=>=$dispatch_time&per_page=20")
+
+              run_id=$(echo "$runs_json" | jq -r \
+                ".workflow_runs[] | select(.display_title | contains(\"$CORRELATION_ID\")) | .id" | head -n1)
+
+              if [[ -z "$run_id" ]]; then
+                run_id=$(echo "$runs_json" | jq -r '.workflow_runs[0].id // empty')
+              fi
 
               if [[ -n "$run_id" ]]; then
                 echo "Found run $run_id for $repo"
@@ -350,9 +847,9 @@ jobs:
               break
             fi
 
-            echo "Not all runs found yet, waiting ${poll_interval}s... (attempt $attempt)"
-            sleep $poll_interval
-            elapsed=$((elapsed + poll_interval))
+            echo "Not all runs found yet, waiting ${discover_interval}s... (attempt $attempt)"
+            sleep $discover_interval
+            elapsed=$((elapsed + discover_interval))
 
             if (( elapsed >= max_wait )); then
               echo "Timeout waiting for runs to appear"
@@ -365,7 +862,7 @@ jobs:
           while (( elapsed < max_wait )); do
             all_done=true
             for repo in $TARGET_REPOS; do
-              run_id="${run_ids[$repo]}"
+              run_id="${run_ids[$repo]:-}"
               if [[ -z "$run_id" ]]; then
                 continue
               fi
@@ -389,11 +886,22 @@ jobs:
           # Phase 3: Collect results
           result_table="| Repository | Status | Link |\n|---|---|---|"
           overall="success"
+          carried="$CARRIED"
+          if [[ -z "$carried" ]]; then carried='{}'; fi
+          results="$carried"
+
+          # Successes carried over from the previous battery (only set by /retest).
+          while IFS= read -r repo; do
+            [[ -z "$repo" ]] && continue
+            result_table="${result_table}\n| ${repo} | ✅ success (previous battery) | - |"
+          done < <(jq -r 'keys[]' <<<"$carried")
+
           for repo in $TARGET_REPOS; do
-            run_id="${run_ids[$repo]}"
+            run_id="${run_ids[$repo]:-}"
             if [[ -z "$run_id" ]]; then
               result_table="${result_table}\n| ${repo} | ⚠️ No run found | - |"
               overall="failure"
+              results=$(jq -c --arg r "$repo" '. + {($r): "no-run-found"}' <<<"$results")
               continue
             fi
 
@@ -414,15 +922,20 @@ jobs:
             fi
 
             result_table="${result_table}\n| ${repo} | ${icon} ${conclusion} | [View run](${html_url}) |"
+            results=$(jq -c --arg r "$repo" --arg c "$conclusion" '. + {($r): $c}' <<<"$results")
           done
 
           echo -e "result_table<<EOF\n${result_table}\nEOF" >> "$GITHUB_OUTPUT"
           echo "overall=$overall" >> "$GITHUB_OUTPUT"
+          echo "results=$results" >> "$GITHUB_OUTPUT"
 
       - name: Post results
         if: steps.targets.outputs.has_targets == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
+          TAG_SHA: ${{ steps.build-tag.outputs.tag_sha }}
+          RESULTS: ${{ steps.poll.outputs.results }}
         run: |
           set -euo pipefail
           MARKER='<!-- sticky:test-downstream -->'
@@ -430,33 +943,60 @@ jobs:
           if [[ "${{ steps.poll.outputs.overall }}" == "success" ]]; then
             header="✅ **All downstream tests passed**"
           else
-            header="❌ **Some downstream tests failed**"
+            header="❌ **Some downstream tests failed** — comment \`/retest\` to re-run only the failed repos."
           fi
 
           cat <<COMMENT_BODY > /tmp/pr-results.md
           ${MARKER}
           ${header}
 
-          PR #${{ github.event.issue.number }} (${{ steps.pr-details.outputs.head_sha }})
+          PR #${{ github.event.issue.number }} (${{ steps.verified.outputs.head_sha }})
 
           ${{ steps.poll.outputs.result_table }}
           COMMENT_BODY
 
-          existing_id=$(gh api --paginate \
-            "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
-            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -n1)
+          # Machine-readable state consumed by /retest.
+          results_json="$RESULTS"
+          if [[ -z "$results_json" ]]; then results_json='{}'; fi
+          state=$(jq -c -n --arg h "$HEAD_SHA" --arg t "$TAG_SHA" --argjson r "$results_json" \
+            '{head_sha: $h, tag_sha: $t, results: $r}')
+          printf '\n<!-- state:test-downstream %s -->\n' "$state" >> /tmp/pr-results.md
 
-          if [[ -n "$existing_id" ]]; then
-            jq -Rs '{body: .}' < /tmp/pr-results.md \
-              | gh api --method PATCH \
-                "repos/${{ github.repository }}/issues/comments/$existing_id" \
-                --input - --silent
+          # Delete older sticky comments and repost so the final result is always
+          # the newest comment in the thread.
+          gh api --paginate \
+            "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" \
+            | while read -r cid; do
+                gh api --method DELETE "repos/${{ github.repository }}/issues/comments/$cid" --silent
+              done
+
+          jq -Rs '{body: .}' < /tmp/pr-results.md \
+            | gh api --method POST \
+              "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+              --input - --silent
+
+      - name: Finalize commit status
+        if: steps.targets.outputs.has_targets == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.verified.outputs.head_sha }}
+          OVERALL: ${{ steps.poll.outputs.overall }}
+        run: |
+          if [[ "$OVERALL" == "success" ]]; then
+            state='success'
+            description='All downstream tests passed'
           else
-            jq -Rs '{body: .}' < /tmp/pr-results.md \
-              | gh api --method POST \
-                "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
-                --input - --silent
+            state='failure'
+            description='Some downstream tests failed — see the PR comment for details'
           fi
+
+          gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
+            -f state="$state" \
+            -f context='downstream-tests' \
+            -f description="$description" \
+            -f target_url='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+            --silent
 
       - name: Set exit code
         if: steps.targets.outputs.has_targets == 'true' && steps.poll.outputs.overall != 'success'

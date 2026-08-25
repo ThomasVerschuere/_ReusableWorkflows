@@ -45,9 +45,11 @@ Usage examples in each action README are sourced from the master workflows in
 | `update-global-json-sdks` | Rewrites managed `msbuild-sdks` versions in `global.json`. | [update-global-json-sdks/README.md](update-global-json-sdks/README.md) |
 | `apply-catalog-identifiers` | Rewrites manifest `id:` fields from mapping input. | [apply-catalog-identifiers/README.md](apply-catalog-identifiers/README.md) |
 | `compute-next-version` | Computes the next SemVer version from the latest final tag + Change-Type bump. | [compute-next-version/README.md](compute-next-version/README.md) |
-| `determine-version` | Determines the canonical build version (`version` + 4-field `numeric-version`) from the git ref. | [determine-version/README.md](determine-version/README.md) |
+| `determine-version` | Determines public, informational, assembly/file, and MSI versions from the git ref. | [determine-version/README.md](determine-version/README.md) |
 | `set-repo-type` | Writes the enterprise `Workflow-Repo-Type` custom property (idempotent read-before-write). | [set-repo-type/README.md](set-repo-type/README.md) |
 | `remove-wix-projects` | Strips WiX projects from a solution for cross-platform CI builds. | [remove-wix-projects/README.md](remove-wix-projects/README.md) |
+| `partition-solution-projects` | Splits a solution into remaining, WiX, and DataMiner package build stages. | [partition-solution-projects/README.md](partition-solution-projects/README.md) |
+| `sign-assemblies` | Signs build outputs through Azure Key Vault, signing each unique file content once and copying the result over its duplicates. | [sign-assemblies/README.md](sign-assemblies/README.md) |
 | `package-debian` | Builds a `.deb` per DxM project from per-project Debian skeletons. | [package-debian/README.md](package-debian/README.md) |
 | `apply-source-code-url` | Fills empty `source_code_url:` fields in catalog manifests. | [apply-source-code-url/README.md](apply-source-code-url/README.md) |
 | `sonarcloud-status` | Checks SonarCloud project status and emits analysis flag. | [sonarcloud-status/README.md](sonarcloud-status/README.md) |
@@ -55,6 +57,7 @@ Usage examples in each action README are sourced from the master workflows in
 | `run-unit-tests` | Runs unit tests for all test projects in a solution. | [run-unit-tests/README.md](run-unit-tests/README.md) |
 | `unit-tests` | Wrapper combining detect + run unit test actions. | [unit-tests/README.md](unit-tests/README.md) |
 | `references-parser` | Parses and validates the mandatory PR `References:` line and renders the sticky-comment summary. | [references-parser/README.md](references-parser/README.md) |
+| `exempt-change-detector` | Classifies changes against shared and repository-specific exempt path globs. | [exempt-change-detector/README.md](exempt-change-detector/README.md) |
 | `quality-gate-summary` | Aggregates unit-test / SonarCloud / Validator outcomes, renders a Job Summary + sticky PR comment, and fails the job on any failed sub-gate. | [quality-gate-summary/README.md](quality-gate-summary/README.md) |
 
 ## Referencing from a reusable workflow in this repo

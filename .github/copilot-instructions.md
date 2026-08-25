@@ -34,11 +34,32 @@ Centralized GitHub Actions **reusable workflows** and **composite actions** cons
 
 `update-global-json-sdks/action.yml` hard-codes `$DATAMINER_SDK_VERSION` and the `$dataMinerSdkPatterns` list. **To roll out a new DataMiner SDK version across the fleet, bump that constant and the matching `version=...` line in the `update-global-json-sdks` job of `Test composite actions.yml`.** The action rewrites every `msbuild-sdks` key matching `Skyline.DataMiner.*` to the shared version; exact-name overrides in `$otherManagedSdks` win against the pattern.
 
+## DxM and DcM integration boundary
+
+This repository owns only the reusable, repository-type-neutral part of the DxM flow:
+
+- `Master Workflow.yml` builds, tests, packages, signs, and publishes artifacts.
+- `compute-next-version`, `determine-version`, and `exempt-change-detector` provide shared release classification and version contracts.
+- `references-parser` parses the common `References:` administration format.
+- `package-debian`, `resolve-oidc`, `load-secrets`, NuGet-source actions, and `set-repo-type` remain generic building blocks.
+
+Core-specific PR governance, tag orchestration, collaboration, CR/QA task-state behavior, and the production DxM repository template belong in `SkylineCommunicationsCore/.github-private`. SkylineAPI behavior belongs in `SkylineCommunicationsCore/Skyline.DataMiner.CICD.Tools.ReleaseTracker`. DxM artifact API behavior and the production server synchronizer belong in `SkylineCommunicationsCore/Skyline.DataMiner.CICD.Tools.DxMStorage`.
+
+When changing a DxM-facing contract:
+
+- Search `SkylineCommunicationsCore/.github-private/provisioning/dxm-repo-template` and its reusable workflows for affected callers and consumers.
+- Keep stable and prerelease SemVer behavior aligned across `compute-next-version`, `determine-version`, `.github-private/auto-tag.yml`, DxMStorage publication, and server tag resolution.
+- Keep exempt-change behavior aligned between `exempt-change-detector`, `.github-private/pr-validation.yml`, `.github-private/auto-tag.yml`, `.github-private/collaboration.yml`, and ReleaseTracker's reserved-RN filtering.
+- Add or update `Test composite actions.yml` coverage for a changed action, then use the downstream battery for the affected Master Workflow paths. Event-driven Core governance behavior still needs a separate `PilotDxM` run.
+- Update `SkylineCommunications/internal-docs/DevDocs/GitHub_DxM_Repositories/` when developer, release, packaging, identity, or operational behavior changes.
+
 ## Testing
 
 - **`Test composite actions.yml`** — self-contained smoke tests, triggered on push/PR that touches `.github/actions/**`. Adds runtime assertions on outputs and idempotency for every composite that doesn't need live secrets. When you add a composite action, **add a matching job here**. `sonarcloud-status` is gated to `workflow_dispatch` because it needs a live `SONAR_TOKEN` + `SONAR_NAME` var.
-- **`Test Downstream.yml`** — triggered by a `/test` comment on a PR by a user with `write`/`admin`. Force-pushes a `test-downstream` tag whose tree has every cross-repo composite ref rewritten to `@test-downstream`, then dispatches the matching downstream `BOOST-DailyRegression-*` repos (see the `DOWNSTREAM_MAP` JSON env var at the top of the file). Requires `secrets.DOWNSTREAM_PAT` with `workflow` scope. **When adding a new downstream regression repo:** add it to `DOWNSTREAM_MAP` (include transitive workflow dependencies, e.g. `Connector Master Workflow.yml` *and* `Connector Master SDK Workflow.yml`), then create `.github/workflows/test-downstream.yml` in the target repo on its default branch.
-- **There is no local test runner.** Validate changes by pushing a branch (CI runs the composite tests) and `/test`-ing a PR for downstream coverage.
+- **Downstream integration-test battery** — source of truth: [TESTING.md](../TESTING.md). `Downstream Gate.yml` posts the `downstream-tests` commit status on every PR (pending when workflows/actions are touched). A `/test` comment (write access) runs `Test Downstream.yml`: it maps changed workflows *and composite actions* to consumer repos via `DOWNSTREAM_MAP`, force-pushes the `test-downstream` tag, dispatches the `BOOST-DailyRegression-*` receivers (`pr-regression.yml`, correlation-id + tag-SHA verified), polls up to 90 min, and finalizes the commit status. `/retest` re-dispatches only the repos that failed in the previous battery (state embedded in the sticky comment; requires an unchanged head SHA). Downstream verify jobs assert artifact/job names — see "Downstream battery coupling" in `.github/instructions/reusable-workflows.instructions.md` before renaming anything. **When adding a new downstream repo:** follow the checklist in TESTING.md (fixtures validated locally, receiver, secrets, repo topic, `DOWNSTREAM_MAP` entry incl. transitive workflow dependencies).
+- **Cross-repository fixes** — Copilot autofix cannot edit a battery repository from a `_ReusableWorkflows` review session. When a review finding requires downstream changes, name the affected mapped repositories and provide a ready-to-run `/prepare-downstream-fixes` comment with concrete acceptance criteria. A maintainer must post it; the command creates linked downstream issues and assigns separate Copilot sessions. Never claim the source autofix will make those changes itself.
+- **`/test` runs `main`'s orchestrator** (`issue_comment` semantics) — changes to `Test Downstream.yml` itself only take effect after merge.
+- **Maintenance script tests** — run `python -m unittest discover -s .github/scripts/tests -p 'test_*.py'` locally. Validate reusable-workflow behavior by pushing a branch and `/test`-ing a PR for downstream coverage.
 
 ## When making changes
 
